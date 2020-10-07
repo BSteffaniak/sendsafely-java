@@ -22,6 +22,8 @@ import static com.sendsafely.cliapp.ConsolePromptHelpers.*;
 class SendSafelyCLI {
   private SendSafely sendSafelyAPI;
   private Package currentPackage;
+  private UserInformation userInformation;
+  private Set<String> addedRecipients;
 
   private Stack<Runnable> undoActions;
 
@@ -49,6 +51,7 @@ class SendSafelyCLI {
 
   public void call() throws CLIException, IOException {
     undoActions = new Stack<>();
+    addedRecipients = new HashSet<>();
 
     AnsiConsole.systemInstall();
 
@@ -83,7 +86,6 @@ class SendSafelyCLI {
             break;
           case UPLOAD_FILE:
             uploadFile();
-            currentPackage = null;
             break;
           case UNDO:
             undoPreviousAction();
@@ -106,10 +108,16 @@ class SendSafelyCLI {
     }
   }
 
+  private void clearCurrentPackage() {
+    currentPackage = null;
+    addedRecipients.clear();
+  }
+
   private void logoutUser() {
     undoActions.clear();
+    clearCurrentPackage();
     sendSafelyAPI = null;
-    currentPackage = null;
+    userInformation = null;
   }
 
   private void loginUser() throws IOException {
@@ -151,7 +159,7 @@ class SendSafelyCLI {
 
     try {
       sendSafelyAPI.verifyCredentials();
-      UserInformation userInformation = sendSafelyAPI.getUserInformation();
+      userInformation = sendSafelyAPI.getUserInformation();
 
       System.out.println("Successfully logged in! Welcome, " + userInformation.getFirstName() + "!!! Wooooo!");
 
@@ -211,7 +219,6 @@ class SendSafelyCLI {
     try {
       final FileManager fileManager;
       final File file = promptForFile("Enter the file location");
-      final HashSet<String> recipients = new HashSet<>();
 
       try {
         fileManager = new DefaultFileManager(file);
@@ -251,6 +258,7 @@ class SendSafelyCLI {
           ImmutableMap.<ActionType, String>builder()
             .put(ActionType.UPLOAD_FILE, "Upload another file")
             .put(ActionType.ADD_RECIPIENTS, "Add recipients")
+            .put(ActionType.ADD_YOURSELF_AS_RECIPIENT, "Add yourself as a recipient")
             .put(ActionType.FINALIZE, "Finalize file")
             .put(ActionType.UNDO, "Undo")
             .put(ActionType.LOGOUT, "Logout")
@@ -262,12 +270,16 @@ class SendSafelyCLI {
           case UPLOAD_FILE:
             uploadFile();
           case FINALIZE:
-            if (finalizePackage(currentPackage)) {
+            if (finalizePackage()) {
+              clearCurrentPackage();
               return;
             }
             break;
           case ADD_RECIPIENTS:
-            addRecipients(currentPackage, recipients);
+            addRecipients();
+            break;
+          case ADD_YOURSELF_AS_RECIPIENT:
+            addRecipients(userInformation.getEmail());
             break;
           case UNDO:
             undoPreviousAction();
@@ -275,7 +287,7 @@ class SendSafelyCLI {
           case LOGOUT:
             logoutUser();
             loginUser();
-            break;
+            return;
           case QUIT:
             quit();
             return;
@@ -290,7 +302,6 @@ class SendSafelyCLI {
         uploadFile();
       } else {
         quit();
-        return;
       }
     }
   }
@@ -301,7 +312,7 @@ class SendSafelyCLI {
     System.exit(0);
   }
 
-  private boolean finalizePackage(Package currentPackage) {
+  private boolean finalizePackage() {
     try {
       PackageURL packageURL = sendSafelyAPI.finalizePackage(currentPackage.getPackageId(), currentPackage.getKeyCode());
 
@@ -320,9 +331,13 @@ class SendSafelyCLI {
     }
   }
 
-  private void addRecipients(Package currentPackage, Set<String> addedRecipients) throws IOException {
+  private void addRecipients() throws IOException {
     String recipientEmail = promptForString("Enter recipient email:").trim();
 
+    addRecipients(recipientEmail);
+  }
+
+  private void addRecipients(String recipientEmail) {
     if (recipientEmail.isEmpty()) {
       System.err.println("Recipient cannot be empty");
     } else if (addedRecipients.contains(recipientEmail)) {
@@ -332,6 +347,8 @@ class SendSafelyCLI {
         Recipient recipient = sendSafelyAPI.addRecipient(currentPackage.getPackageId(), recipientEmail);
 
         addedRecipients.add(recipientEmail);
+
+        System.out.println("Successfully added recipient '" + recipientEmail + "'");
 
         undoActions.push(() -> {
           System.out.println("Removing recipient '" + recipientEmail + "'");
@@ -349,38 +366,6 @@ class SendSafelyCLI {
       } catch (LimitExceededException | RecipientFailedException e) {
         System.err.println("Failed to add recipient: " + e.getMessage());
       }
-    }
-
-    ActionType action = promptForAction(
-      "What would you like to do?",
-      ImmutableMap.<ActionType, String>builder()
-        .put(ActionType.UPLOAD_FILE, "Continue with file upload")
-        .put(ActionType.ADD_RECIPIENTS, "Add another recipient")
-        .put(ActionType.UNDO, "Undo adding recipient")
-        .put(ActionType.LOGOUT, "Logout")
-        .put(ActionType.QUIT, "Rage quit (lose all unfinalized changes)")
-        .build()
-    );
-
-    switch (action) {
-      case UPLOAD_FILE:
-        break;
-      case ADD_RECIPIENTS:
-        addRecipients(currentPackage, addedRecipients);
-        break;
-      case UNDO:
-        undoPreviousAction();
-        addRecipients(currentPackage, addedRecipients);
-        break;
-      case QUIT:
-        quit();
-        return;
-      case LOGOUT:
-        logoutUser();
-        loginUser();
-        break;
-      default:
-        throw new CLIException("Invalid action: " + action);
     }
   }
 }
