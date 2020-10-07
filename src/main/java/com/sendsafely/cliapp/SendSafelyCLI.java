@@ -148,6 +148,10 @@ class SendSafelyCLI {
     }
   }
 
+  public SendSafely getSendSafelyAPIForKeyAndSecret(String apiKey, String apiSecret) {
+    return new SendSafely("https://app.sendsafely.com", apiKey, apiSecret);
+  }
+
   public boolean attemptLogin() throws IOException {
     String apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
     String apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
@@ -158,7 +162,7 @@ class SendSafelyCLI {
       return false;
     }
 
-    sendSafelyAPI = new SendSafely("https://app.sendsafely.com", apiKey, apiSecret);
+    sendSafelyAPI = getSendSafelyAPIForKeyAndSecret(apiKey, apiSecret);
 
     try {
       sendSafelyAPI.verifyCredentials();
