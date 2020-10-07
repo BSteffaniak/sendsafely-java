@@ -10,8 +10,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ConsolePromptHelpers {
-  public static File promptForFile(String message) throws IOException {
+public class ConsolePromptHelper {
+  public File promptForFile(String message) throws IOException {
     String location = promptForString(message);
 
     if (location.isEmpty()) {
@@ -29,7 +29,7 @@ public class ConsolePromptHelpers {
     return file;
   }
 
-  public static String promptForString(String message) throws IOException {
+  public String promptForString(String message) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();
 
@@ -46,7 +46,7 @@ public class ConsolePromptHelpers {
     return inputResult.getInput();
   }
 
-  public static String promptForPrivateString(String message) throws IOException {
+  public String promptForPrivateString(String message) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();
 
@@ -64,7 +64,7 @@ public class ConsolePromptHelpers {
     return inputResult.getInput();
   }
 
-  public static ActionType promptForAction(String message, Map<ActionType, String> options) throws IOException {
+  public ActionType promptForAction(String message, Map<ActionType, String> options) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();
 
@@ -83,7 +83,7 @@ public class ConsolePromptHelpers {
     return ActionType.valueOf(item.getSelectedId());
   }
 
-  public static boolean promptForConfirmation(String message) throws IOException {
+  public boolean promptForConfirmation(String message) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();
 

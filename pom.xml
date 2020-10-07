@@ -7,11 +7,14 @@
     <properties>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-        <maven-compiler-plugin-version>3.8.1</maven-compiler-plugin-version>
+        <maven-sunfire-plugin.version>2.22.2</maven-sunfire-plugin.version>
         <progressbar.version>0.9.0</progressbar.version>
         <sendsafely.version>3.1.6</sendsafely.version>
         <consoleui.version>0.0.13</consoleui.version>
         <guava.version>29.0-jre</guava.version>
+        <mockito.version>3.5.13</mockito.version>
+        <mockito-junit.version>2.23.0</mockito-junit.version>
+        <junit.version>5.7.0</junit.version>
     </properties>
 
     <groupId>org.example</groupId>
@@ -41,6 +44,27 @@
             <groupId>com.sendsafely</groupId>
             <artifactId>sendsafely-java-api</artifactId>
             <version>${sendsafely.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>${mockito-junit.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -83,6 +107,11 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven-sunfire-plugin.version}</version>
             </plugin>
         </plugins>
     </build>

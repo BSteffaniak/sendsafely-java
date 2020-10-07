@@ -17,10 +17,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
-import static com.sendsafely.cliapp.ConsolePromptHelpers.*;
-
 class SendSafelyCLI {
   private SendSafely sendSafelyAPI;
+  private ConsolePromptHelper consolePromptHelper;
   private Package currentPackage;
   private UserInformation userInformation;
   private Set<String> addedRecipients;
@@ -28,7 +27,7 @@ class SendSafelyCLI {
   private Stack<Runnable> undoActions;
 
   public static void main(String... args) {
-    SendSafelyCLI cli = new SendSafelyCLI();
+    SendSafelyCLI cli = new SendSafelyCLI(new ConsolePromptHelper());
 
     try {
       cli.call();
@@ -41,12 +40,16 @@ class SendSafelyCLI {
     System.exit(0);
   }
 
-  private static void restoreTerminalFactory() {
+  public static void restoreTerminalFactory() {
     try {
       TerminalFactory.get().restore();
     } catch (Exception e) {
       throw new CLIException("Failed to restore terminal factory", e);
     }
+  }
+
+  public SendSafelyCLI(ConsolePromptHelper consolePromptHelper) {
+    this.consolePromptHelper = consolePromptHelper;
   }
 
   public void call() throws CLIException, IOException {
@@ -75,7 +78,7 @@ class SendSafelyCLI {
           .put(ActionType.LOGOUT, "Logout")
           .put(ActionType.QUIT, "Quit");
 
-        ActionType action = promptForAction(
+        ActionType action = consolePromptHelper.promptForAction(
           "What would you like to do?",
           optionsBuilder.build()
         );
@@ -108,21 +111,21 @@ class SendSafelyCLI {
     }
   }
 
-  private void clearCurrentPackage() {
+  public void clearCurrentPackage() {
     currentPackage = null;
     addedRecipients.clear();
   }
 
-  private void logoutUser() {
+  public void logoutUser() {
     undoActions.clear();
     clearCurrentPackage();
     sendSafelyAPI = null;
     userInformation = null;
   }
 
-  private void loginUser() throws IOException {
+  public void loginUser() throws IOException {
     while (true) {
-      ActionType action = promptForAction(
+      ActionType action = consolePromptHelper.promptForAction(
         "What would you like to do?",
         ImmutableMap.<ActionType, String>builder()
           .put(ActionType.LOGIN, "Login")
@@ -145,9 +148,9 @@ class SendSafelyCLI {
     }
   }
 
-  private boolean attemptLogin() throws IOException {
-    String apiKey = promptForPrivateString("Enter api key:");
-    String apiSecret = promptForPrivateString("Enter api secret (shhhhhh):");
+  public boolean attemptLogin() throws IOException {
+    String apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
+    String apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
 
     if (apiKey.isEmpty() || apiSecret.isEmpty()) {
       System.err.println("Invalid credentials");
@@ -183,7 +186,7 @@ class SendSafelyCLI {
     }
   }
 
-  private void undoPreviousAction() {
+  public void undoPreviousAction() {
     if (undoActions.empty()) {
       System.err.println("No actions available to be undone, but I'm sure you knew that already. You're doing great!");
     } else {
@@ -193,7 +196,7 @@ class SendSafelyCLI {
     }
   }
 
-  private void createPackage() {
+  public void createPackage() {
     try {
       currentPackage = sendSafelyAPI.createPackage();
 
@@ -215,10 +218,10 @@ class SendSafelyCLI {
     }
   }
 
-  private void uploadFile() throws IOException {
+  public void uploadFile() throws IOException {
     try {
       final FileManager fileManager;
-      final File file = promptForFile("Enter the file location");
+      final File file = consolePromptHelper.promptForFile("Enter the file location");
 
       try {
         fileManager = new DefaultFileManager(file);
@@ -253,7 +256,7 @@ class SendSafelyCLI {
       System.out.println("File successfully uploaded");
 
       while (true) {
-        ActionType action = promptForAction(
+        ActionType action = consolePromptHelper.promptForAction(
           "What would you like to do?",
           ImmutableMap.<ActionType, String>builder()
             .put(ActionType.UPLOAD_FILE, "Upload another file")
@@ -298,7 +301,7 @@ class SendSafelyCLI {
     } catch (FilePromptException e) {
       System.err.println(e.getMessage());
 
-      if (promptForConfirmation("Try a new file?")) {
+      if (consolePromptHelper.promptForConfirmation("Try a new file?")) {
         uploadFile();
       } else {
         quit();
@@ -306,13 +309,13 @@ class SendSafelyCLI {
     }
   }
 
-  private void quit() {
+  public void quit() {
     System.out.println("Bye ♥");
 
     System.exit(0);
   }
 
-  private boolean finalizePackage() {
+  public boolean finalizePackage() {
     try {
       PackageURL packageURL = sendSafelyAPI.finalizePackage(currentPackage.getPackageId(), currentPackage.getKeyCode());
 
@@ -331,13 +334,13 @@ class SendSafelyCLI {
     }
   }
 
-  private void addRecipients() throws IOException {
-    String recipientEmail = promptForString("Enter recipient email:").trim();
+  public void addRecipients() throws IOException {
+    String recipientEmail = consolePromptHelper.promptForString("Enter recipient email:").trim();
 
     addRecipients(recipientEmail);
   }
 
-  private void addRecipients(String recipientEmail) {
+  public void addRecipients(String recipientEmail) {
     if (recipientEmail.isEmpty()) {
       System.err.println("Recipient cannot be empty");
     } else if (addedRecipients.contains(recipientEmail)) {
