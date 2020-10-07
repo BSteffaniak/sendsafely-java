@@ -10,12 +10,25 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Helper functions for getting user input from the console.
+ */
 public class ConsolePromptHelper {
+  /**
+   * Prompt for a file location, then return the java.io.File for that location.
+   *
+   * @param message The message to display in the prompt
+   * @return The java.io.File for the given location
+   */
   public File promptForFile(String message) throws IOException {
     String location = promptForString(message);
 
     if (location.isEmpty()) {
       throw new FilePromptException("Please give a file name");
+    }
+
+    while (location.startsWith("\"") && location.endsWith("\"") || location.startsWith("'") && location.endsWith("'")) {
+      location = location.substring(1, location.length() - 1);
     }
 
     File file = new File(location);
@@ -29,6 +42,12 @@ public class ConsolePromptHelper {
     return file;
   }
 
+  /**
+   * Prompt for a String response.
+   *
+   * @param message The message to display in the prompt
+   * @return The String response from the user
+   */
   public String promptForString(String message) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();
@@ -46,6 +65,12 @@ public class ConsolePromptHelper {
     return inputResult.getInput();
   }
 
+  /**
+   * Prompt for a masked String. Useful for reading sensitive data.
+   *
+   * @param message The message to display in the prompt
+   * @return The String response from the user
+   */
   public String promptForPrivateString(String message) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();
@@ -64,6 +89,13 @@ public class ConsolePromptHelper {
     return inputResult.getInput();
   }
 
+  /**
+   * Get which ActionType is selected from the given options Map.
+   *
+   * @param message The message to display in the prompt
+   * @param options The Map of ActionTypes -> label for the options
+   * @return The ActionType response from the user
+   */
   public ActionType promptForAction(String message, Map<ActionType, String> options) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();
@@ -83,6 +115,12 @@ public class ConsolePromptHelper {
     return ActionType.valueOf(item.getSelectedId());
   }
 
+  /**
+   * Get a boolean response from the user.
+   *
+   * @param message The message to display in the prompt
+   * @return The yes/no boolean response from the user
+   */
   public boolean promptForConfirmation(String message) throws IOException {
     ConsolePrompt consolePrompt = new ConsolePrompt();
     PromptBuilder promptBuilder = consolePrompt.getPromptBuilder();

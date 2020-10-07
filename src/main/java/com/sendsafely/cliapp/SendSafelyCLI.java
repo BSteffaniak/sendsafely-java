@@ -17,6 +17,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
+/**
+ * A small CLI application for interfacing with the SendSafely API.
+ */
 class SendSafelyCLI {
   private SendSafely sendSafelyAPI;
   private ConsolePromptHelper consolePromptHelper;
@@ -26,6 +29,10 @@ class SendSafelyCLI {
 
   private Stack<Runnable> undoActions;
 
+  /**
+   * Start the CLI application. Exit code 1 for any uncaught CLIExceptions or IOExceptions.
+   * Exit code 0 for all successful outcomes.
+   */
   public static void main(String... args) {
     SendSafelyCLI cli = new SendSafelyCLI(new ConsolePromptHelper());
 
@@ -40,6 +47,9 @@ class SendSafelyCLI {
     System.exit(0);
   }
 
+  /**
+   * Restore the jline.TerminalFactory back to its default state.
+   */
   public static void restoreTerminalFactory() {
     try {
       TerminalFactory.get().restore();
@@ -48,6 +58,11 @@ class SendSafelyCLI {
     }
   }
 
+  /**
+   * Create a new SendSafelyCLI in a fresh state.
+   *
+   * @param consolePromptHelper An object with prompt helper functions.
+   */
   public SendSafelyCLI(ConsolePromptHelper consolePromptHelper) {
     this.consolePromptHelper = consolePromptHelper;
 
@@ -55,6 +70,11 @@ class SendSafelyCLI {
     addedRecipients = new HashSet<>();
   }
 
+  /**
+   * Start the CLI program. This starts the user off with prompting login credentials, then
+   * moves into the main menu where a user can create a package, upload a file, add recipients
+   * to the current package, undo the previous action, logout, or quit the program.
+   */
   public void start() throws CLIException, IOException {
     AnsiConsole.systemInstall();
 
@@ -65,7 +85,11 @@ class SendSafelyCLI {
         ImmutableMap.Builder<ActionType, String> optionsBuilder = ImmutableMap.builder();
 
         if (currentPackage != null) {
-          optionsBuilder.put(ActionType.UPLOAD_FILE, "Upload file");
+          optionsBuilder
+            .put(ActionType.UPLOAD_FILE, "Upload file")
+            .put(ActionType.ADD_RECIPIENTS, "Add recipients")
+            .put(ActionType.ADD_YOURSELF_AS_RECIPIENT, "Add yourself as a recipient")
+            .put(ActionType.FINALIZE, "Finalize package");
         } else {
           optionsBuilder.put(ActionType.CREATE_PACKAGE, "Create package");
         }
@@ -90,6 +114,15 @@ class SendSafelyCLI {
           case UPLOAD_FILE:
             uploadFile();
             break;
+          case FINALIZE:
+            finalizePackage();
+            break;
+          case ADD_RECIPIENTS:
+            addRecipients();
+            break;
+          case ADD_YOURSELF_AS_RECIPIENT:
+            addRecipients(userInformation.getEmail());
+            break;
           case UNDO:
             undoPreviousAction();
             break;
@@ -111,11 +144,17 @@ class SendSafelyCLI {
     }
   }
 
+  /**
+   * Clear the state around the current package.
+   */
   public void clearCurrentPackage() {
     currentPackage = null;
     addedRecipients.clear();
   }
 
+  /**
+   * Logout the currently logged in user and clear the sendSafelyAPI properties.
+   */
   public void logoutUser() {
     undoActions.clear();
     clearCurrentPackage();
@@ -123,6 +162,11 @@ class SendSafelyCLI {
     userInformation = null;
   }
 
+  /**
+   * Promp the user with a menu where they can login or quit the program.
+   *
+   * @throws IOException
+   */
   public void loginUser() throws IOException {
     while (true) {
       ActionType action = consolePromptHelper.promptForAction(
@@ -148,10 +192,22 @@ class SendSafelyCLI {
     }
   }
 
+  /**
+   * Get a new SendSafely API instance with the given apiKey and apiSecret.
+   *
+   * @param apiKey The SendSafely api key for a user
+   * @param apiSecret The SendSafely api secret for a user
+   * @return The SendSafely API instance connected with the credentials
+   */
   public SendSafely getSendSafelyAPIForKeyAndSecret(String apiKey, String apiSecret) {
     return new SendSafely("https://app.sendsafely.com", apiKey, apiSecret);
   }
 
+  /**
+   * Prompt for the user's api key and api secret, then try to log them into the API.
+   *
+   * @return Returns true if the user successfully logged in. False otherwise.
+   */
   public boolean attemptLogin() throws IOException {
     String apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
     String apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
@@ -190,6 +246,9 @@ class SendSafelyCLI {
     }
   }
 
+  /**
+   * Undo the most previously enacted action.
+   */
   public void undoPreviousAction() {
     if (undoActions.empty()) {
       System.err.println("No actions available to be undone, but I'm sure you knew that already. You're doing great!");
@@ -200,10 +259,18 @@ class SendSafelyCLI {
     }
   }
 
+  /**
+   * Delete the current package.
+   */
   public void deleteCurrentPackage() throws DeletePackageException {
     sendSafelyAPI.deletePackage(currentPackage.getPackageId());
+
+    currentPackage = null;
   }
 
+  /**
+   * Create a new SendSafely package and set it as the current package
+   */
   public void createPackage() {
     try {
       currentPackage = sendSafelyAPI.createPackage();
@@ -218,20 +285,30 @@ class SendSafelyCLI {
         } catch (DeletePackageException e) {
           System.err.println("Failed to delete packages: " + e.getError());
         }
-
-        currentPackage = null;
       });
     } catch (CreatePackageFailedException | LimitExceededException e) {
       System.err.println("Failed to create package: " + e);
     }
   }
 
+  /**
+   * Delete the given file from the current package.
+   *
+   * @param file The java.io.File version of the file to delete.
+   * @param addedFile The com.sendSafely.File version of the file to delete.
+   */
   public void deleteFile(File file, com.sendsafely.File addedFile) throws FileOperationFailedException, IOException {
     System.out.println("Deleting file '" + file.getCanonicalPath() + "'");
 
     sendSafelyAPI.deleteFile(currentPackage.getPackageId(), currentPackage.getRootDirectoryId(), addedFile.getFileId());
   }
 
+  /**
+   * Create a SendSafely FileManager for the given File.
+   *
+   * @param file The File to create a FileManager for.
+   * @return A new FileManager for the File.
+   */
   public FileManager createFileManager(File file) {
     try {
       return new DefaultFileManager(file);
@@ -240,12 +317,17 @@ class SendSafelyCLI {
     }
   }
 
+  /**
+   * Enter a promp sequence for uploading a file to the current package.
+   */
   public void uploadFile() throws IOException {
     try {
       final File file = consolePromptHelper.promptForFile("Enter the file location");
 
       FileManager fileManager = createFileManager(file);
 
+      // Using try-with-resources to ensure the ProgressBar stream gets closed out after successful
+      // and failed file uploads
       try (ProgressBar progressBar = new ASCIIProgressBar("File Upload", 100)) {
         FileUploadProgress fileUploadProgress = new FileUploadProgress(progressBar);
 
@@ -258,7 +340,7 @@ class SendSafelyCLI {
 
               System.out.println("Deleted file successfully");
             } catch (FileOperationFailedException | IOException e) {
-              throw new CLIException("Failed to delete file from package", e);
+              System.err.println("Failed to delete file from package: " + e.getMessage());
             }
           });
 
@@ -269,69 +351,28 @@ class SendSafelyCLI {
       }
 
       System.out.println("File successfully uploaded");
-
-      while (true) {
-        ActionType action = consolePromptHelper.promptForAction(
-          "What would you like to do?",
-          ImmutableMap.<ActionType, String>builder()
-            .put(ActionType.UPLOAD_FILE, "Upload another file")
-            .put(ActionType.ADD_RECIPIENTS, "Add recipients")
-            .put(ActionType.ADD_YOURSELF_AS_RECIPIENT, "Add yourself as a recipient")
-            .put(ActionType.FINALIZE, "Finalize file")
-            .put(ActionType.UNDO, "Undo")
-            .put(ActionType.LOGOUT, "Logout")
-            .put(ActionType.QUIT, "Rage quit (lose all unfinalized changes)")
-            .build()
-        );
-
-        switch (action) {
-          case UPLOAD_FILE:
-            uploadFile();
-            break;
-          case FINALIZE:
-            if (finalizePackage()) {
-              clearCurrentPackage();
-              return;
-            }
-            break;
-          case ADD_RECIPIENTS:
-            addRecipients();
-            break;
-          case ADD_YOURSELF_AS_RECIPIENT:
-            addRecipients(userInformation.getEmail());
-            break;
-          case UNDO:
-            undoPreviousAction();
-            break;
-          case LOGOUT:
-            logoutUser();
-            loginUser();
-            return;
-          case QUIT:
-            quit();
-            return;
-          default:
-            throw new CLIException("Invalid action: " + action);
-        }
-      }
     } catch (FilePromptException e) {
       System.err.println(e.getMessage());
 
       if (consolePromptHelper.promptForConfirmation("Try a new file?")) {
         uploadFile();
-      } else {
-        quit();
       }
     }
   }
 
+  /**
+   * Quit the app with exit code 0.
+   */
   public void quit() {
     System.out.println("Bye ♥");
 
     System.exit(0);
   }
 
-  public boolean finalizePackage() {
+  /**
+   * Finalize the current package and print out a secure link to that package.
+   */
+  public void finalizePackage() {
     try {
       PackageURL packageURL = sendSafelyAPI.finalizePackage(currentPackage.getPackageId(), currentPackage.getKeyCode());
 
@@ -342,20 +383,26 @@ class SendSafelyCLI {
         System.err.println("Cannot unfinalize a package (that I'm aware of)");
       });
 
-      return true;
+      clearCurrentPackage();
     } catch (LimitExceededException | FinalizePackageFailedException | ApproverRequiredException e) {
       System.err.println("Failed to finalize package: " + e.getMessage());
-
-      return false;
     }
   }
 
+  /**
+   * Add a recipient to the current package.
+   */
   public void addRecipients() throws IOException {
     String recipientEmail = consolePromptHelper.promptForString("Enter recipient email:").trim();
 
     addRecipients(recipientEmail);
   }
 
+  /**
+   * Add a predetermined recipient to the current package.
+   *
+   * @param recipientEmail The recipient to add.
+   */
   public void addRecipients(String recipientEmail) {
     if (recipientEmail.isEmpty()) {
       System.err.println("Recipient cannot be empty");

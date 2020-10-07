@@ -268,6 +268,9 @@ public class SendSafelyCLITest {
       eq(
         ImmutableMap.<ActionType, String>builder()
           .put(ActionType.UPLOAD_FILE, "Upload file")
+          .put(ActionType.ADD_RECIPIENTS, "Add recipients")
+          .put(ActionType.ADD_YOURSELF_AS_RECIPIENT, "Add yourself as a recipient")
+          .put(ActionType.FINALIZE, "Finalize package")
           .put(ActionType.UNDO, "Undo")
           .put(ActionType.LOGOUT, "Logout")
           .put(ActionType.QUIT, "Quit")

@@ -1,5 +1,8 @@
 package com.sendsafely.cliapp;
 
+/**
+ * An enumeration of all the possible ActionTypes a user can take in the CLI
+ */
 public enum ActionType {
   LOGIN,
   LOGOUT,

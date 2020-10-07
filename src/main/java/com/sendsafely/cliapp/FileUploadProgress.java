@@ -3,6 +3,10 @@ package com.sendsafely.cliapp;
 import com.sendsafely.ProgressInterface;
 import me.tongfei.progressbar.ProgressBar;
 
+/**
+ * ProgressInterface implementation that uses a me.tongfei.progressbar.ProgressBar
+ * to display file upload progress.
+ */
 public class FileUploadProgress implements ProgressInterface {
   private final ProgressBar progressBar;
 
