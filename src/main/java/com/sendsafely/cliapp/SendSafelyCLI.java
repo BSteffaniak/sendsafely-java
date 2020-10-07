@@ -1,47 +1,386 @@
 package com.sendsafely.cliapp;
 
+import com.google.common.collect.ImmutableMap;
+import com.sendsafely.Package;
+import com.sendsafely.Recipient;
 import com.sendsafely.SendSafely;
+import com.sendsafely.dto.PackageURL;
 import com.sendsafely.dto.UserInformation;
-import picocli.CommandLine;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Parameters;
+import com.sendsafely.exceptions.*;
+import com.sendsafely.file.DefaultFileManager;
+import com.sendsafely.file.FileManager;
+import jline.TerminalFactory;
+import me.tongfei.progressbar.ProgressBar;
+import org.fusesource.jansi.AnsiConsole;
 
-import java.util.concurrent.Callable;
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
 
-@Command(
-  name = "SendSafelyCLI",
-  mixinStandardHelpOptions = true,
-  version = "1.0",
-  description = "Simple command-line application for uploading files with the SendSafely API"
-)
-class SendSafelyCLI implements Callable<Integer> {
-  @Parameters(
-    index = "0",
-    description = "The action to execute (upload-file, undo)"
-  )
-  private String action;
+import static com.sendsafely.cliapp.ConsolePromptHelpers.*;
 
-  @Parameters(
-    index = "1..*",
-    description = "aaaa"
-  )
-  private String[] args;
+class SendSafelyCLI {
+  private SendSafely sendSafelyAPI;
+  private Package currentPackage;
 
-  // this example implements Callable, so parsing, error handling and handling user
-  // requests for usage help or version help can be done with one line of code.
-  public static void main(String... args) {
-    int exitCode = new CommandLine(new SendSafelyCLI()).execute(args);
-    System.exit(exitCode);
+  private Stack<Runnable> undoActions;
+
+  public static void main(String... args) throws InterruptedException {
+    SendSafelyCLI cli = new SendSafelyCLI();
+
+    try {
+      cli.call();
+    } catch (CLIException | IOException exception) {
+      System.err.println(exception.getMessage());
+
+      System.exit(1);
+    }
+
+    System.exit(0);
   }
 
-  @Override
-  public Integer call() throws Exception { // your business logic goes here...
-    SendSafely sendSafelyAPI = new SendSafely("https://demo.sendsafely.com", "", "");
+  private static void restoreTerminalFactory() {
+    try {
+      TerminalFactory.get().restore();
+    } catch (Exception e) {
+      throw new CLIException("Failed to restore terminal factory", e);
+    }
+  }
 
-    UserInformation userInformation = sendSafelyAPI.getUserInformation();
+  public void call() throws CLIException, IOException {
+    undoActions = new Stack<>();
 
-    System.out.println(userInformation.getEmail() + " " + userInformation.getFirstName() + " " + userInformation.getLastName());
+    AnsiConsole.systemInstall();
 
-    return 0;
+    loginUser();
+
+    try {
+      while (true) {
+        ImmutableMap.Builder<ActionType, String> optionsBuilder = ImmutableMap.builder();
+
+        if (currentPackage != null) {
+          optionsBuilder.put(ActionType.UPLOAD_FILE, "Upload file");
+        } else {
+          optionsBuilder.put(ActionType.CREATE_PACKAGE, "Create package");
+        }
+
+        if (!undoActions.isEmpty()) {
+          optionsBuilder.put(ActionType.UNDO, "Undo");
+        }
+
+        optionsBuilder
+          .put(ActionType.LOGOUT, "Logout")
+          .put(ActionType.QUIT, "Quit");
+
+        ActionType action = promptForAction(
+          "What would you like to do?",
+          optionsBuilder.build()
+        );
+
+        switch (action) {
+          case CREATE_PACKAGE:
+            createPackage();
+            break;
+          case UPLOAD_FILE:
+            uploadFile();
+            currentPackage = null;
+            break;
+          case UNDO:
+            undoPreviousAction();
+            break;
+          case LOGOUT:
+            logoutUser();
+            loginUser();
+            break;
+          case QUIT:
+            quit();
+            return;
+          default:
+            throw new CLIException("Invalid action: " + action);
+        }
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    } finally {
+      restoreTerminalFactory();
+    }
+  }
+
+  private void logoutUser() {
+    undoActions.clear();
+    sendSafelyAPI = null;
+    currentPackage = null;
+  }
+
+  private void loginUser() throws IOException {
+    while (true) {
+      ActionType action = promptForAction(
+        "What would you like to do?",
+        ImmutableMap.<ActionType, String>builder()
+          .put(ActionType.LOGIN, "Login")
+          .put(ActionType.QUIT, "Quit")
+          .build()
+      );
+
+      switch (action) {
+        case LOGIN:
+          if (attemptLogin()) {
+            return;
+          }
+          break;
+        case QUIT:
+          quit();
+          return;
+        default:
+          throw new CLIException("Invalid action: " + action);
+      }
+    }
+  }
+
+  private boolean attemptLogin() throws IOException {
+    String apiKey = promptForPrivateString("Enter api key:");
+    String apiSecret = promptForPrivateString("Enter api secret (shhhhhh):");
+
+    if (apiKey.isEmpty() || apiSecret.isEmpty()) {
+      System.err.println("Invalid credentials");
+
+      return false;
+    }
+
+    sendSafelyAPI = new SendSafely("https://app.sendsafely.com", apiKey, apiSecret);
+
+    try {
+      sendSafelyAPI.verifyCredentials();
+      UserInformation userInformation = sendSafelyAPI.getUserInformation();
+
+      System.out.println("Successfully logged in! Welcome, " + userInformation.getFirstName() + "!!! Wooooo!");
+
+      undoActions.push(() -> {
+        logoutUser();
+
+        System.out.println("Logged out!!");
+
+        try {
+          loginUser();
+        } catch (IOException e) {
+          System.err.println("Failed to login user: " + e.getMessage());
+        }
+      });
+
+      return true;
+    } catch (InvalidCredentialsException | UserInformationFailedException e) {
+      System.err.println("Invalid credentials");
+
+      return false;
+    }
+  }
+
+  private void undoPreviousAction() {
+    if (undoActions.empty()) {
+      System.err.println("No actions available to be undone, but I'm sure you knew that already. You're doing great!");
+    } else {
+      Runnable action = undoActions.pop();
+
+      action.run();
+    }
+  }
+
+  private void createPackage() {
+    try {
+      currentPackage = sendSafelyAPI.createPackage();
+
+      System.out.println("Successfully created package");
+
+      undoActions.push(() -> {
+        try {
+          sendSafelyAPI.deletePackage(currentPackage.getPackageId());
+
+          System.out.println("Successfully deleted package");
+        } catch (DeletePackageException e) {
+          System.err.println("Failed to delete packages: " + e.getError());
+        }
+
+        currentPackage = null;
+      });
+    } catch (CreatePackageFailedException | LimitExceededException e) {
+      System.err.println("Failed to create package: " + e);
+    }
+  }
+
+  private boolean uploadFile() throws IOException {
+    try {
+      final FileManager fileManager;
+      final File file = promptForFile("Enter the file location");
+      final HashSet<String> recipients = new HashSet<>();
+
+      try {
+        fileManager = new DefaultFileManager(file);
+      } catch (IOException e) {
+        throw new CLIException("Failed to create file manager", e);
+      }
+
+      try (ProgressBar progressBar = new ASCIIProgressBar("File Upload", 100)) {
+        FileUploadProgress fileUploadProgress = new FileUploadProgress(progressBar);
+
+        try {
+          com.sendsafely.File addedFile = sendSafelyAPI.encryptAndUploadFile(currentPackage.getPackageId(), currentPackage.getKeyCode(), fileManager, fileUploadProgress);
+
+          undoActions.push(() -> {
+            try {
+              System.out.println("Deleting file '" + file.getCanonicalPath() + "'");
+
+              sendSafelyAPI.deleteFile(currentPackage.getPackageId(), currentPackage.getRootDirectoryId(), addedFile.getFileId());
+
+              System.out.println("Deleted file successfully");
+            } catch (FileOperationFailedException | IOException e) {
+              throw new CLIException("Failed to delete file from package", e);
+            }
+          });
+
+          progressBar.stepTo(100);
+        } catch (LimitExceededException | UploadFileException e) {
+          System.err.println("Failed to upload file:" + e.getMessage());
+        }
+      }
+
+      System.out.println("File successfully uploaded");
+
+      while (true) {
+        ActionType action = promptForAction(
+          "What would you like to do?",
+          ImmutableMap.<ActionType, String>builder()
+            .put(ActionType.UPLOAD_FILE, "Upload another file")
+            .put(ActionType.ADD_RECIPIENTS, "Add recipients")
+            .put(ActionType.FINALIZE, "Finalize file")
+            .put(ActionType.UNDO, "Undo")
+            .put(ActionType.LOGOUT, "Logout")
+            .put(ActionType.QUIT, "Rage quit (lose all unfinalized changes)")
+            .build()
+        );
+
+        switch (action) {
+          case UPLOAD_FILE:
+            return uploadFile();
+          case FINALIZE:
+            if (finalizePackage(currentPackage)) {
+              return true;
+            }
+            break;
+          case ADD_RECIPIENTS:
+            addRecipients(currentPackage, recipients);
+            break;
+          case UNDO:
+            undoPreviousAction();
+            break;
+          case LOGOUT:
+            logoutUser();
+            loginUser();
+            break;
+          case QUIT:
+            quit();
+            return false;
+          default:
+            throw new CLIException("Invalid action: " + action);
+        }
+      }
+    } catch (FilePromptException e) {
+      System.err.println(e.getMessage());
+
+      if (promptForConfirmation("Try a new file?")) {
+        return uploadFile();
+      } else {
+        quit();
+        return false;
+      }
+    }
+  }
+
+  private void quit() {
+    System.out.println("Bye ♥");
+
+    System.exit(0);
+  }
+
+  private boolean finalizePackage(Package currentPackage) {
+    try {
+      PackageURL packageURL = sendSafelyAPI.finalizePackage(currentPackage.getPackageId(), currentPackage.getKeyCode());
+
+      System.out.println("Secure link: " + packageURL.getSecureLink());
+
+      undoActions.clear();
+      undoActions.push(() -> {
+        System.err.println("Cannot unfinalize a package (that I'm aware of)");
+      });
+
+      return true;
+    } catch (LimitExceededException | FinalizePackageFailedException | ApproverRequiredException e) {
+      System.err.println("Failed to finalize package: " + e.getMessage());
+
+      return false;
+    }
+  }
+
+  private void addRecipients(Package currentPackage, Set<String> addedRecipients) throws IOException {
+    String recipientEmail = promptForString("Enter recipient email:").trim();
+
+    if (recipientEmail.isEmpty()) {
+      System.err.println("Recipient '" + recipientEmail + "' already added");
+    } else if (addedRecipients.contains(recipientEmail)) {
+      System.err.println("Recipient '" + recipientEmail + "' already added");
+    } else {
+      try {
+        Recipient recipient = sendSafelyAPI.addRecipient(currentPackage.getPackageId(), recipientEmail);
+
+        addedRecipients.add(recipientEmail);
+
+        undoActions.push(() -> {
+          System.out.println("Removing recipient '" + recipientEmail + "'");
+
+          try {
+            sendSafelyAPI.removeRecipient(currentPackage.getPackageId(), recipient.getRecipientId());
+
+            addedRecipients.remove(recipientEmail);
+
+            System.out.println("Recipient removed successfully");
+          } catch (RecipientFailedException e) {
+            System.err.println("Failed to remove recipient: " + e.getMessage());
+          }
+        });
+      } catch (LimitExceededException | RecipientFailedException e) {
+        System.err.println("Failed to add recipient: " + e.getMessage());
+      }
+    }
+
+    ActionType action = promptForAction(
+      "What would you like to do?",
+      ImmutableMap.<ActionType, String>builder()
+        .put(ActionType.UPLOAD_FILE, "Continue with file upload")
+        .put(ActionType.ADD_RECIPIENTS, "Add another recipient")
+        .put(ActionType.UNDO, "Undo adding recipient")
+        .put(ActionType.LOGOUT, "Logout")
+        .put(ActionType.QUIT, "Rage quit (lose all unfinalized changes)")
+        .build()
+    );
+
+    switch (action) {
+      case UPLOAD_FILE:
+        break;
+      case ADD_RECIPIENTS:
+        addRecipients(currentPackage, addedRecipients);
+        break;
+      case UNDO:
+        undoPreviousAction();
+        addRecipients(currentPackage, addedRecipients);
+        break;
+      case QUIT:
+        quit();
+        return;
+      case LOGOUT:
+        logoutUser();
+        loginUser();
+        break;
+      default:
+        throw new CLIException("Invalid action: " + action);
+    }
   }
 }
