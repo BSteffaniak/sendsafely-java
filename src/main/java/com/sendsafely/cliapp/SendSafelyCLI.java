@@ -164,8 +164,6 @@ class SendSafelyCLI {
 
   /**
    * Promp the user with a menu where they can login or quit the program.
-   *
-   * @throws IOException
    */
   public void loginUser() throws IOException {
     while (true) {
