@@ -207,7 +207,7 @@ class SendSafelyCLI {
     }
   }
 
-  private boolean uploadFile() throws IOException {
+  private void uploadFile() throws IOException {
     try {
       final FileManager fileManager;
       final File file = promptForFile("Enter the file location");
@@ -260,10 +260,10 @@ class SendSafelyCLI {
 
         switch (action) {
           case UPLOAD_FILE:
-            return uploadFile();
+            uploadFile();
           case FINALIZE:
             if (finalizePackage(currentPackage)) {
-              return true;
+              return;
             }
             break;
           case ADD_RECIPIENTS:
@@ -278,7 +278,7 @@ class SendSafelyCLI {
             break;
           case QUIT:
             quit();
-            return false;
+            return;
           default:
             throw new CLIException("Invalid action: " + action);
         }
@@ -287,10 +287,10 @@ class SendSafelyCLI {
       System.err.println(e.getMessage());
 
       if (promptForConfirmation("Try a new file?")) {
-        return uploadFile();
+        uploadFile();
       } else {
         quit();
-        return false;
+        return;
       }
     }
   }
