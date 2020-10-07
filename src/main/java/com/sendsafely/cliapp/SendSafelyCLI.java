@@ -324,7 +324,7 @@ class SendSafelyCLI {
     String recipientEmail = promptForString("Enter recipient email:").trim();
 
     if (recipientEmail.isEmpty()) {
-      System.err.println("Recipient '" + recipientEmail + "' already added");
+      System.err.println("Recipient cannot be empty");
     } else if (addedRecipients.contains(recipientEmail)) {
       System.err.println("Recipient '" + recipientEmail + "' already added");
     } else {
