@@ -25,7 +25,7 @@ class SendSafelyCLI {
 
   private Stack<Runnable> undoActions;
 
-  public static void main(String... args) throws InterruptedException {
+  public static void main(String... args) {
     SendSafelyCLI cli = new SendSafelyCLI();
 
     try {
