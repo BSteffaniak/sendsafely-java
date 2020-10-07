@@ -313,7 +313,7 @@ class SendSafelyCLI {
     try {
       return new DefaultFileManager(file);
     } catch (IOException e) {
-      throw new CLIException("Failed to create file manager", e);
+      throw new FilePromptException("Failed to create file manager: " + e);
     }
   }
 
