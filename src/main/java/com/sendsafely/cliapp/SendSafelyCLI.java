@@ -30,7 +30,7 @@ class SendSafelyCLI {
     SendSafelyCLI cli = new SendSafelyCLI(new ConsolePromptHelper());
 
     try {
-      cli.call();
+      cli.start();
     } catch (CLIException | IOException exception) {
       System.err.println(exception.getMessage());
 
@@ -50,12 +50,12 @@ class SendSafelyCLI {
 
   public SendSafelyCLI(ConsolePromptHelper consolePromptHelper) {
     this.consolePromptHelper = consolePromptHelper;
-  }
 
-  public void call() throws CLIException, IOException {
     undoActions = new Stack<>();
     addedRecipients = new HashSet<>();
+  }
 
+  public void start() throws CLIException, IOException {
     AnsiConsole.systemInstall();
 
     loginUser();
@@ -200,6 +200,10 @@ class SendSafelyCLI {
     }
   }
 
+  public void deleteCurrentPackage() throws DeletePackageException {
+    sendSafelyAPI.deletePackage(currentPackage.getPackageId());
+  }
+
   public void createPackage() {
     try {
       currentPackage = sendSafelyAPI.createPackage();
@@ -208,7 +212,7 @@ class SendSafelyCLI {
 
       undoActions.push(() -> {
         try {
-          sendSafelyAPI.deletePackage(currentPackage.getPackageId());
+          deleteCurrentPackage();
 
           System.out.println("Successfully deleted package");
         } catch (DeletePackageException e) {
@@ -222,16 +226,25 @@ class SendSafelyCLI {
     }
   }
 
+  public void deleteFile(File file, com.sendsafely.File addedFile) throws FileOperationFailedException, IOException {
+    System.out.println("Deleting file '" + file.getCanonicalPath() + "'");
+
+    sendSafelyAPI.deleteFile(currentPackage.getPackageId(), currentPackage.getRootDirectoryId(), addedFile.getFileId());
+  }
+
+  public FileManager createFileManager(File file) {
+    try {
+      return new DefaultFileManager(file);
+    } catch (IOException e) {
+      throw new CLIException("Failed to create file manager", e);
+    }
+  }
+
   public void uploadFile() throws IOException {
     try {
-      final FileManager fileManager;
       final File file = consolePromptHelper.promptForFile("Enter the file location");
 
-      try {
-        fileManager = new DefaultFileManager(file);
-      } catch (IOException e) {
-        throw new CLIException("Failed to create file manager", e);
-      }
+      FileManager fileManager = createFileManager(file);
 
       try (ProgressBar progressBar = new ASCIIProgressBar("File Upload", 100)) {
         FileUploadProgress fileUploadProgress = new FileUploadProgress(progressBar);
@@ -241,9 +254,7 @@ class SendSafelyCLI {
 
           undoActions.push(() -> {
             try {
-              System.out.println("Deleting file '" + file.getCanonicalPath() + "'");
-
-              sendSafelyAPI.deleteFile(currentPackage.getPackageId(), currentPackage.getRootDirectoryId(), addedFile.getFileId());
+              deleteFile(file, addedFile);
 
               System.out.println("Deleted file successfully");
             } catch (FileOperationFailedException | IOException e) {
@@ -276,6 +287,7 @@ class SendSafelyCLI {
         switch (action) {
           case UPLOAD_FILE:
             uploadFile();
+            break;
           case FINALIZE:
             if (finalizePackage()) {
               clearCurrentPackage();
