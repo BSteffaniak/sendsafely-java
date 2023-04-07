@@ -1,21 +1,39 @@
 package com.sendsafely.cliapp;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Stack;
+
+import org.apache.commons.io.FileUtils;
+import org.fusesource.jansi.AnsiConsole;
+import org.zeroturnaround.zip.ZipUtil;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import com.sendsafely.Package;
 import com.sendsafely.Recipient;
 import com.sendsafely.SendSafely;
 import com.sendsafely.dto.PackageURL;
 import com.sendsafely.dto.UserInformation;
-import com.sendsafely.exceptions.*;
+import com.sendsafely.exceptions.ApproverRequiredException;
+import com.sendsafely.exceptions.CreatePackageFailedException;
+import com.sendsafely.exceptions.DeletePackageException;
+import com.sendsafely.exceptions.FileOperationFailedException;
+import com.sendsafely.exceptions.FinalizePackageFailedException;
+import com.sendsafely.exceptions.InvalidCredentialsException;
+import com.sendsafely.exceptions.LimitExceededException;
+import com.sendsafely.exceptions.RecipientFailedException;
+import com.sendsafely.exceptions.UploadFileException;
+import com.sendsafely.exceptions.UserInformationFailedException;
 import com.sendsafely.file.DefaultFileManager;
 import com.sendsafely.file.FileManager;
+
 import jline.TerminalFactory;
 import me.tongfei.progressbar.ProgressBar;
-import org.fusesource.jansi.AnsiConsole;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.*;
 
 /**
  * A small CLI application for interfacing with the SendSafely API.
@@ -29,6 +47,9 @@ class SendSafelyCLI {
 
   private Stack<Runnable> undoActions;
 
+  private static final File credsHomeDirectory = new File(System.getProperty("user.home"), ".config");
+  private static final File credsFile = new File(credsHomeDirectory, ".ss-creds.json");
+
   /**
    * Start the CLI application. Exit code 1 for any uncaught CLIExceptions or IOExceptions.
    * Exit code 0 for all successful outcomes.
@@ -37,7 +58,7 @@ class SendSafelyCLI {
     SendSafelyCLI cli = new SendSafelyCLI(new ConsolePromptHelper());
 
     try {
-      cli.start();
+      cli.start(!"true".equals(System.getenv("DISABLE_CREDS_FILE")));
     } catch (CLIException | IOException exception) {
       System.err.println(exception.getMessage());
 
@@ -75,10 +96,10 @@ class SendSafelyCLI {
    * moves into the main menu where a user can create a package, upload a file, add recipients
    * to the current package, undo the previous action, logout, or quit the program.
    */
-  public void start() throws CLIException, IOException {
+  public void start(boolean checkFile) throws CLIException, IOException {
     AnsiConsole.systemInstall();
 
-    loginUser();
+    loginUser(checkFile);
 
     try {
       while (true) {
@@ -128,7 +149,7 @@ class SendSafelyCLI {
             break;
           case LOGOUT:
             logoutUser();
-            loginUser();
+            loginUser(checkFile);
             break;
           case QUIT:
             quit();
@@ -165,7 +186,7 @@ class SendSafelyCLI {
   /**
    * Promp the user with a menu where they can login or quit the program.
    */
-  public void loginUser() throws IOException {
+  public void loginUser(boolean checkFile) throws IOException {
     while (true) {
       ActionType action = consolePromptHelper.promptForAction(
         "What would you like to do?",
@@ -177,7 +198,7 @@ class SendSafelyCLI {
 
       switch (action) {
         case LOGIN:
-          if (attemptLogin()) {
+          if (attemptLogin(checkFile)) {
             return;
           }
           break;
@@ -206,9 +227,20 @@ class SendSafelyCLI {
    *
    * @return Returns true if the user successfully logged in. False otherwise.
    */
-  public boolean attemptLogin() throws IOException {
-    String apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
-    String apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
+  public boolean attemptLogin(boolean checkFile) throws IOException {
+    String apiKey = null;
+    String apiSecret = null;
+
+    if (checkFile && credsFile.exists()) {
+      ObjectMapper mapper = new ObjectMapper();
+
+      JsonNode node = mapper.readTree(credsFile);
+      apiKey = node.get("apiKey").asText();
+      apiSecret = node.get("apiKeySecret").asText();
+    } else {
+      apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
+      apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
+    }
 
     if (apiKey.isEmpty() || apiSecret.isEmpty()) {
       System.err.println("Invalid credentials");
@@ -230,7 +262,7 @@ class SendSafelyCLI {
         System.out.println("Logged out!!");
 
         try {
-          loginUser();
+          loginUser(checkFile);
         } catch (IOException e) {
           System.err.println("Failed to login user: " + e.getMessage());
         }
@@ -320,9 +352,40 @@ class SendSafelyCLI {
    */
   public void uploadFile() throws IOException {
     try {
-      final File file = consolePromptHelper.promptForFile("Enter the file location");
+      File tempDir = null;
+      File file = consolePromptHelper.promptForFile("Enter the file location");
+
+      if (file.isDirectory()) {
+        if (!consolePromptHelper.promptForConfirmation("The given file is a directory and cannot be uploaded as is. Zip it?")) {
+          return;
+        }
+
+        String name = file.getName();
+
+        try {
+          name = file.getCanonicalFile().getName();
+        } catch (IOException e) {
+          System.err.println("Failed to get canonical file name");
+        }
+
+        tempDir = Files.createTempDirectory("ss-" + name).toFile();
+
+        File tempFile = new File(tempDir, name + ".zip");
+
+        if (tempFile.exists()) {
+          throw new RuntimeException("Zip file already exists at location " + tempFile.getAbsolutePath());
+        }
+
+        System.out.println("Creating zip file at " + tempFile.getAbsolutePath());
+
+        ZipUtil.pack(file, tempFile);
+
+        file = tempFile;
+      }
 
       FileManager fileManager = createFileManager(file);
+
+      final File uploadedFile = file;
 
       // Using try-with-resources to ensure the ProgressBar stream gets closed out after successful
       // and failed file uploads
@@ -334,7 +397,7 @@ class SendSafelyCLI {
 
           undoActions.push(() -> {
             try {
-              deleteFile(file, addedFile);
+              deleteFile(uploadedFile, addedFile);
 
               System.out.println("Deleted file successfully");
             } catch (FileOperationFailedException | IOException e) {
@@ -349,6 +412,12 @@ class SendSafelyCLI {
       }
 
       System.out.println("File successfully uploaded");
+
+      if (tempDir != null) {
+        FileUtils.deleteDirectory(tempDir);
+      
+        System.out.println("Temporary zip file deleted");
+      }
     } catch (FilePromptException e) {
       System.err.println(e.getMessage());
 

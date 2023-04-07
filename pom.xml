@@ -9,7 +9,7 @@
         <maven.compiler.target>1.8</maven.compiler.target>
         <maven-sunfire-plugin.version>2.22.2</maven-sunfire-plugin.version>
         <progressbar.version>0.9.0</progressbar.version>
-        <sendsafely.version>3.1.6</sendsafely.version>
+        <sendsafely.version>3.1.8</sendsafely.version>
         <consoleui.version>0.0.13</consoleui.version>
         <guava.version>29.0-jre</guava.version>
         <mockito.version>3.5.13</mockito.version>
@@ -65,6 +65,24 @@
             <artifactId>mockito-junit-jupiter</artifactId>
             <version>${mockito-junit.version}</version>
             <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.9.8</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.zeroturnaround</groupId>
+            <artifactId>zt-zip</artifactId>
+            <version>1.15</version>
+        </dependency>
+
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.11.0</version>
         </dependency>
     </dependencies>
 

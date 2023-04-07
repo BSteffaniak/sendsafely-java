@@ -33,9 +33,7 @@ public class ConsolePromptHelper {
 
     File file = new File(location);
 
-    if (file.isDirectory()) {
-      throw new FilePromptException("Cannot upload a directory");
-    } else if (!file.isFile()) {
+    if (!file.exists()) {
       throw new FilePromptException("File does not exist at '" + file.getCanonicalPath() + "'");
     }
 
