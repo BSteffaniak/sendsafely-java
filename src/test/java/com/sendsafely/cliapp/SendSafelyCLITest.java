@@ -41,7 +41,7 @@ public class SendSafelyCLITest {
   void attemptLogin_shouldNotAllowLoggingInWithEmptyCredentials() throws IOException {
     when(consolePromptHelper.promptForPrivateString(any())).thenReturn("");
 
-    assertFalse(sendSafelyCLI.attemptLogin(false));
+    assertFalse(sendSafelyCLI.attemptLogin());
   }
 
   @Test
@@ -54,7 +54,7 @@ public class SendSafelyCLITest {
 
     when(sendSafely.verifyCredentials()).thenThrow(new InvalidCredentialsException());
 
-    assertFalse(sendSafelyCLI.attemptLogin(false));
+    assertFalse(sendSafelyCLI.attemptLogin());
 
     verify(sendSafelyCLI, times(1)).getSendSafelyAPIForKeyAndSecret("smelly key", "stinky secret");
   }
@@ -69,7 +69,7 @@ public class SendSafelyCLITest {
 
     when(sendSafely.getUserInformation()).thenThrow(new UserInformationFailedException());
 
-    assertFalse(sendSafelyCLI.attemptLogin(false));
+    assertFalse(sendSafelyCLI.attemptLogin());
 
     verify(sendSafelyCLI, times(1)).getSendSafelyAPIForKeyAndSecret("smelly key", "stinky secret");
   }
@@ -86,7 +86,7 @@ public class SendSafelyCLITest {
 
     when(sendSafely.getUserInformation()).thenReturn(userInformation);
 
-    assertTrue(sendSafelyCLI.attemptLogin(false));
+    assertTrue(sendSafelyCLI.attemptLogin());
   }
 
   @Test
@@ -98,11 +98,11 @@ public class SendSafelyCLITest {
     UserInformation userInformation = mock(UserInformation.class);
 
     doReturn(sendSafely).when(sendSafelyCLI).getSendSafelyAPIForKeyAndSecret("smelly key", "stinky secret");
-    doNothing().when(sendSafelyCLI).loginUser(false);
+    doNothing().when(sendSafelyCLI).loginUser();
 
     when(sendSafely.getUserInformation()).thenReturn(userInformation);
 
-    sendSafelyCLI.attemptLogin(false);
+    sendSafelyCLI.attemptLogin();
 
     verify(sendSafelyCLI, times(0)).logoutUser();
 
@@ -120,11 +120,11 @@ public class SendSafelyCLITest {
     UserInformation userInformation = mock(UserInformation.class);
 
     doReturn(sendSafely).when(sendSafelyCLI).getSendSafelyAPIForKeyAndSecret("smelly key", "stinky secret");
-    doNothing().when(sendSafelyCLI).loginUser(false);
+    doNothing().when(sendSafelyCLI).loginUser();
 
     when(sendSafely.getUserInformation()).thenReturn(userInformation);
 
-    sendSafelyCLI.attemptLogin(false);
+    sendSafelyCLI.attemptLogin();
 
     verify(sendSafelyCLI, times(0)).logoutUser();
 
@@ -140,7 +140,7 @@ public class SendSafelyCLITest {
   @Test
   @DisplayName("start | should not show undo in menu if there are no actions to undo")
   void start_shouldNotShowUndoInMenuIfThereAreNoActionsToUndo() throws IOException {
-    doNothing().when(sendSafelyCLI).loginUser(false);
+    doNothing().when(sendSafelyCLI).loginUser();
     doNothing().when(sendSafelyCLI).quit();
 
     when(
@@ -157,7 +157,7 @@ public class SendSafelyCLITest {
     )
       .thenReturn(ActionType.QUIT);
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     verify(consolePromptHelper, times(1)).promptForAction(
       any(),
@@ -213,7 +213,7 @@ public class SendSafelyCLITest {
     )
       .thenReturn(ActionType.QUIT);
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     verify(consolePromptHelper, times(1)).promptForAction(
       any(),
@@ -249,7 +249,7 @@ public class SendSafelyCLITest {
       .thenReturn(ActionType.CREATE_PACKAGE)
       .thenReturn(ActionType.QUIT);
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     verify(consolePromptHelper, times(1)).promptForAction(
       any(),
@@ -300,7 +300,7 @@ public class SendSafelyCLITest {
       .thenReturn(ActionType.CREATE_PACKAGE)
       .thenReturn(ActionType.QUIT);
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     verify(sendSafelyCLI, times(0)).deleteCurrentPackage();
 
@@ -324,7 +324,7 @@ public class SendSafelyCLITest {
     when(sendSafely.createPackage()).thenReturn(pkgInfo);
 
     doNothing().when(sendSafelyCLI).quit();
-    doNothing().when(sendSafelyCLI).uploadFile();
+    doReturn(true).when(sendSafelyCLI).uploadFile();
 
     when(consolePromptHelper.promptForAction(any(), any()))
       .thenReturn(ActionType.LOGIN)
@@ -332,7 +332,7 @@ public class SendSafelyCLITest {
       .thenReturn(ActionType.UPLOAD_FILE)
       .thenReturn(ActionType.QUIT);
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     verify(sendSafelyCLI, times(1)).uploadFile();
   }
@@ -366,7 +366,7 @@ public class SendSafelyCLITest {
 
     verify(sendSafelyCLI, times(0)).deleteFile(any(), any());
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     sendSafelyCLI.undoPreviousAction();
 
@@ -402,7 +402,7 @@ public class SendSafelyCLITest {
 
     verify(sendSafely, times(0)).encryptAndUploadFile(any(), any(), any(), any());
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     verify(sendSafely, times(2)).encryptAndUploadFile(any(), any(), any(), any());
   }
@@ -437,7 +437,7 @@ public class SendSafelyCLITest {
 
     verify(sendSafelyCLI, times(0)).deleteFile(any(), any());
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     sendSafelyCLI.undoPreviousAction();
 
@@ -474,7 +474,7 @@ public class SendSafelyCLITest {
 
     verify(sendSafelyCLI, times(0)).deleteFile(any(), any());
 
-    sendSafelyCLI.start(false);
+    sendSafelyCLI.start();
 
     sendSafelyCLI.undoPreviousAction();
     sendSafelyCLI.undoPreviousAction();

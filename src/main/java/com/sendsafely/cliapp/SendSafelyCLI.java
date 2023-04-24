@@ -4,12 +4,19 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.Stack;
+import java.util.concurrent.Callable;
 
 import org.apache.commons.io.FileUtils;
 import org.fusesource.jansi.AnsiConsole;
 import org.zeroturnaround.zip.ZipUtil;
+
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +33,7 @@ import com.sendsafely.exceptions.FileOperationFailedException;
 import com.sendsafely.exceptions.FinalizePackageFailedException;
 import com.sendsafely.exceptions.InvalidCredentialsException;
 import com.sendsafely.exceptions.LimitExceededException;
+import com.sendsafely.exceptions.MessageException;
 import com.sendsafely.exceptions.RecipientFailedException;
 import com.sendsafely.exceptions.UploadFileException;
 import com.sendsafely.exceptions.UserInformationFailedException;
@@ -38,17 +46,33 @@ import me.tongfei.progressbar.ProgressBar;
 /**
  * A small CLI application for interfacing with the SendSafely API.
  */
-class SendSafelyCLI {
+@Command(
+  name = "ss",
+  mixinStandardHelpOptions = true,
+  version = "ss 1.0",
+  description = "SendSafely Java CLI Client"
+)
+class SendSafelyCLI implements Callable<Integer> {
   private SendSafely sendSafelyAPI;
   private ConsolePromptHelper consolePromptHelper;
   private Package currentPackage;
   private UserInformation userInformation;
   private Set<String> addedRecipients;
+  private boolean checkFile;
 
   private Stack<Runnable> undoActions;
 
   private static final File credsHomeDirectory = new File(System.getProperty("user.home"), ".config");
   private static final File credsFile = new File(credsHomeDirectory, ".ss-creds.json");
+
+  @Option(names = {"-m", "--message"}, description = "Package secure message.")
+  private String message;
+
+  @Option(names = {"-r", "--recipient"}, description = "Package recipient.")
+  private String[] recipients = new String[0];
+
+  @Parameters(index = "0", description = "File to upload.")
+  private File file;
 
   /**
    * Start the CLI application. Exit code 1 for any uncaught CLIExceptions or IOExceptions.
@@ -58,7 +82,13 @@ class SendSafelyCLI {
     SendSafelyCLI cli = new SendSafelyCLI(new ConsolePromptHelper());
 
     try {
-      cli.start(!"true".equals(System.getenv("DISABLE_CREDS_FILE")));
+      cli.checkFile = !Objects.equals(System.getenv("DISABLE_CREDS_FILE"), "true");
+
+      if (args.length > 0) {
+        System.exit(new CommandLine(cli).execute(args));
+      }
+
+      cli.start();
     } catch (CLIException | IOException exception) {
       System.err.println(exception.getMessage());
 
@@ -66,6 +96,28 @@ class SendSafelyCLI {
     }
 
     System.exit(0);
+  }
+
+  public Integer call() throws Exception {
+    if (!attemptLogin()) return 1;
+    if (!createPackage()) return 1;
+    if (!uploadFile(file, true)) return 1;
+
+    if (recipients.length > 0) {
+      for (String recipient : recipients) {
+        if (!addRecipients(recipient)) return 1;
+      }
+    } else {
+      if (!addRecipients(userInformation.getEmail())) return 1;
+    }
+
+    if (message != null) {
+      if (!uploadMessage(message)) return 1;
+    }
+
+    if (!finalizePackage()) return 1;
+
+    return 0;
   }
 
   /**
@@ -96,10 +148,10 @@ class SendSafelyCLI {
    * moves into the main menu where a user can create a package, upload a file, add recipients
    * to the current package, undo the previous action, logout, or quit the program.
    */
-  public void start(boolean checkFile) throws CLIException, IOException {
+  public void start() throws CLIException, IOException {
     AnsiConsole.systemInstall();
 
-    loginUser(checkFile);
+    loginUser();
 
     try {
       while (true) {
@@ -149,7 +201,7 @@ class SendSafelyCLI {
             break;
           case LOGOUT:
             logoutUser();
-            loginUser(checkFile);
+            loginUser();
             break;
           case QUIT:
             quit();
@@ -186,7 +238,7 @@ class SendSafelyCLI {
   /**
    * Promp the user with a menu where they can login or quit the program.
    */
-  public void loginUser(boolean checkFile) throws IOException {
+  public void loginUser() throws IOException {
     while (true) {
       ActionType action = consolePromptHelper.promptForAction(
         "What would you like to do?",
@@ -198,7 +250,7 @@ class SendSafelyCLI {
 
       switch (action) {
         case LOGIN:
-          if (attemptLogin(checkFile)) {
+          if (attemptLogin()) {
             return;
           }
           break;
@@ -227,7 +279,7 @@ class SendSafelyCLI {
    *
    * @return Returns true if the user successfully logged in. False otherwise.
    */
-  public boolean attemptLogin(boolean checkFile) throws IOException {
+  public boolean attemptLogin() throws IOException {
     String apiKey = null;
     String apiSecret = null;
 
@@ -262,7 +314,7 @@ class SendSafelyCLI {
         System.out.println("Logged out!!");
 
         try {
-          loginUser(checkFile);
+          loginUser();
         } catch (IOException e) {
           System.err.println("Failed to login user: " + e.getMessage());
         }
@@ -301,7 +353,7 @@ class SendSafelyCLI {
   /**
    * Create a new SendSafely package and set it as the current package
    */
-  public void createPackage() {
+  public boolean createPackage() {
     try {
       currentPackage = sendSafelyAPI.createPackage();
 
@@ -316,11 +368,32 @@ class SendSafelyCLI {
           System.err.println("Failed to delete packages: " + e.getError());
         }
       });
+
+      return true;
     } catch (CreatePackageFailedException | LimitExceededException e) {
       System.err.println("Failed to create package: " + e);
+
+      return false;
     }
   }
 
+  /**
+   * Create a new SendSafely package and set it as the current package
+   */
+  public boolean uploadMessage(String message) {
+    try {
+      sendSafelyAPI.encryptAndUploadMessage(currentPackage.getPackageId(), currentPackage.getKeyCode(), message);
+
+      System.out.println("Successfully uploaded message");
+
+      return true;
+    } catch (MessageException e) {
+      System.err.println("Failed to upload message: " + e);
+
+      return false;
+    }
+  }
+  
   /**
    * Delete the given file from the current package.
    *
@@ -350,14 +423,32 @@ class SendSafelyCLI {
   /**
    * Enter a promp sequence for uploading a file to the current package.
    */
-  public void uploadFile() throws IOException {
+  public boolean uploadFile() throws IOException {
     try {
-      File tempDir = null;
       File file = consolePromptHelper.promptForFile("Enter the file location");
 
+      return uploadFile(file, false);
+    } catch (FilePromptException e) {
+      System.err.println(e.getMessage());
+
+      if (consolePromptHelper.promptForConfirmation("Try a new file?")) {
+        return uploadFile();
+      }
+
+      return false;
+    }
+  }
+
+  /**
+   * Enter a promp sequence for uploading a file to the current package.
+   */
+  public boolean uploadFile(File file, boolean autoZipDirectory) throws IOException {
+    try {
+      File tempDir = null;
+
       if (file.isDirectory()) {
-        if (!consolePromptHelper.promptForConfirmation("The given file is a directory and cannot be uploaded as is. Zip it?")) {
-          return;
+        if (!autoZipDirectory && !consolePromptHelper.promptForConfirmation("The given file is a directory and cannot be uploaded as is. Zip it?")) {
+          return false;
         }
 
         String name = file.getName();
@@ -418,12 +509,16 @@ class SendSafelyCLI {
       
         System.out.println("Temporary zip file deleted");
       }
+
+      return true;
     } catch (FilePromptException e) {
       System.err.println(e.getMessage());
 
       if (consolePromptHelper.promptForConfirmation("Try a new file?")) {
-        uploadFile();
+        return uploadFile();
       }
+
+      return false;
     }
   }
 
@@ -439,7 +534,7 @@ class SendSafelyCLI {
   /**
    * Finalize the current package and print out a secure link to that package.
    */
-  public void finalizePackage() {
+  public boolean finalizePackage() {
     try {
       PackageURL packageURL = sendSafelyAPI.finalizePackage(currentPackage.getPackageId(), currentPackage.getKeyCode());
 
@@ -451,8 +546,12 @@ class SendSafelyCLI {
       });
 
       clearCurrentPackage();
+
+      return true;
     } catch (LimitExceededException | FinalizePackageFailedException | ApproverRequiredException e) {
       System.err.println("Failed to finalize package: " + e.getMessage());
+
+      return false;
     }
   }
 
@@ -470,35 +569,42 @@ class SendSafelyCLI {
    *
    * @param recipientEmail The recipient to add.
    */
-  public void addRecipients(String recipientEmail) {
+  public boolean addRecipients(String recipientEmail) {
     if (recipientEmail.isEmpty()) {
       System.err.println("Recipient cannot be empty");
-    } else if (addedRecipients.contains(recipientEmail)) {
+      return false;
+    }
+    if (addedRecipients.contains(recipientEmail)) {
       System.err.println("Recipient '" + recipientEmail + "' already added");
-    } else {
-      try {
-        Recipient recipient = sendSafelyAPI.addRecipient(currentPackage.getPackageId(), recipientEmail);
+      return false;
+    }
 
-        addedRecipients.add(recipientEmail);
+    try {
+      Recipient recipient = sendSafelyAPI.addRecipient(currentPackage.getPackageId(), recipientEmail);
 
-        System.out.println("Successfully added recipient '" + recipientEmail + "'");
+      addedRecipients.add(recipientEmail);
 
-        undoActions.push(() -> {
-          System.out.println("Removing recipient '" + recipientEmail + "'");
+      System.out.println("Successfully added recipient '" + recipientEmail + "'");
 
-          try {
-            sendSafelyAPI.removeRecipient(currentPackage.getPackageId(), recipient.getRecipientId());
+      undoActions.push(() -> {
+        System.out.println("Removing recipient '" + recipientEmail + "'");
 
-            addedRecipients.remove(recipientEmail);
+        try {
+          sendSafelyAPI.removeRecipient(currentPackage.getPackageId(), recipient.getRecipientId());
 
-            System.out.println("Recipient removed successfully");
-          } catch (RecipientFailedException e) {
-            System.err.println("Failed to remove recipient: " + e.getMessage());
-          }
-        });
-      } catch (LimitExceededException | RecipientFailedException e) {
-        System.err.println("Failed to add recipient: " + e.getMessage());
-      }
+          addedRecipients.remove(recipientEmail);
+
+          System.out.println("Recipient removed successfully");
+        } catch (RecipientFailedException e) {
+          System.err.println("Failed to remove recipient: " + e.getMessage());
+        }
+      });
+
+      return true;
+    } catch (LimitExceededException | RecipientFailedException e) {
+      System.err.println("Failed to add recipient: " + e.getMessage());
+
+      return false;
     }
   }
 }
