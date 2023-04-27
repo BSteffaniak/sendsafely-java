@@ -378,7 +378,7 @@ class SendSafelyCLI implements Callable<Integer> {
   }
 
   /**
-   * Create a new SendSafely package and set it as the current package
+   * Upload a custom message to the current package
    */
   public boolean uploadMessage(String message) {
     try {
