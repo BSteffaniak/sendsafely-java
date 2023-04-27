@@ -2,6 +2,7 @@ package com.sendsafely.cliapp;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.Objects;
@@ -65,14 +66,17 @@ class SendSafelyCLI implements Callable<Integer> {
   private static final File credsHomeDirectory = new File(System.getProperty("user.home"), ".config");
   private static final File credsFile = new File(credsHomeDirectory, ".ss-creds.json");
 
+  @Option(names = {"-mf", "--message-file"}, description = "Package secure message from a file.")
+  private File messageFile;
+
   @Option(names = {"-m", "--message"}, description = "Package secure message.")
   private String message;
 
   @Option(names = {"-r", "--recipient"}, description = "Package recipient.")
   private String[] recipients = new String[0];
 
-  @Parameters(index = "0", description = "File to upload.")
-  private File file;
+  @Parameters(arity = "0..*", description = "File to upload.")
+  private File[] files = new File[0];
 
   /**
    * Start the CLI application. Exit code 1 for any uncaught CLIExceptions or IOExceptions.
@@ -101,7 +105,10 @@ class SendSafelyCLI implements Callable<Integer> {
   public Integer call() throws Exception {
     if (!attemptLogin()) return 1;
     if (!createPackage()) return 1;
-    if (!uploadFile(file, true)) return 1;
+
+    for (File file : files) {
+      if (!uploadFile(file, true)) return 1;
+    }
 
     if (recipients.length > 0) {
       for (String recipient : recipients) {
@@ -111,7 +118,9 @@ class SendSafelyCLI implements Callable<Integer> {
       if (!addRecipients(userInformation.getEmail())) return 1;
     }
 
-    if (message != null) {
+    if (messageFile != null) {
+      if (!uploadMessage(messageFile)) return 1;
+    } else if (message != null) {
       if (!uploadMessage(message)) return 1;
     }
 
@@ -389,6 +398,19 @@ class SendSafelyCLI implements Callable<Integer> {
       return true;
     } catch (MessageException e) {
       System.err.println("Failed to upload message: " + e);
+
+      return false;
+    }
+  }
+
+  /**
+   * Upload a custom message to the current package
+   */
+  public boolean uploadMessage(File mesageFile) {
+    try {
+      return uploadMessage(FileUtils.readFileToString(messageFile, StandardCharsets.UTF_8));
+    } catch (IOException e) {
+      System.err.println("Failed to read file contents: " + e);
 
       return false;
     }
