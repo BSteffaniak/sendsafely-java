@@ -23,18 +23,18 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 public class SendSafelyCLITest {
-  SendSafelyCLI sendSafelyCLI;
+    SendSafelyCLI sendSafelyCLI;
 
-  @Mock
-  ConsolePromptHelper consolePromptHelper;
+    @Mock
+    ConsolePromptHelper consolePromptHelper;
 
-  @Mock
-  SendSafely sendSafely;
+    @Mock
+    SendSafely sendSafely;
 
-  @BeforeEach
-  void setup() {
-    this.sendSafelyCLI = Mockito.spy(new SendSafelyCLI(consolePromptHelper));
-  }
+    @BeforeEach
+    void setup() {
+        this.sendSafelyCLI = Mockito.spy(new SendSafelyCLI(consolePromptHelper));
+    }
 
   @Test
   @DisplayName("attemptLogin | should not allow logging in with empty credentials")
@@ -137,39 +137,34 @@ public class SendSafelyCLITest {
     verify(sendSafelyCLI, times(1)).logoutUser();
   }
 
-  @Test
-  @DisplayName("start | should not show undo in menu if there are no actions to undo")
-  void start_shouldNotShowUndoInMenuIfThereAreNoActionsToUndo() throws IOException {
-    doNothing().when(sendSafelyCLI).loginUser();
-    doNothing().when(sendSafelyCLI).quit();
+    @Test
+    @DisplayName("start | should not show undo in menu if there are no actions to undo")
+    void start_shouldNotShowUndoInMenuIfThereAreNoActionsToUndo() throws IOException {
+        doNothing().when(sendSafelyCLI).loginUser();
+        doNothing().when(sendSafelyCLI).quit();
 
-    when(
-      consolePromptHelper.promptForAction(
-        any(),
-        eq(
-          ImmutableMap.<ActionType, String>builder()
-            .put(ActionType.CREATE_PACKAGE, "Create package")
-            .put(ActionType.LOGOUT, "Logout")
-            .put(ActionType.QUIT, "Quit")
-            .build()
-        )
-      )
-    )
-      .thenReturn(ActionType.QUIT);
+        when(
+            consolePromptHelper.promptForAction(
+                any(),
+                eq(
+                    ImmutableMap.<ActionType, String>builder()
+                        .put(ActionType.CREATE_PACKAGE, "Create package")
+                        .put(ActionType.LOGOUT, "Logout")
+                        .put(ActionType.QUIT, "Quit")
+                        .build())))
+                            .thenReturn(ActionType.QUIT);
 
-    sendSafelyCLI.start();
+        sendSafelyCLI.start();
 
-    verify(consolePromptHelper, times(1)).promptForAction(
-      any(),
-      eq(
-        ImmutableMap.<ActionType, String>builder()
-          .put(ActionType.CREATE_PACKAGE, "Create package")
-          .put(ActionType.LOGOUT, "Logout")
-          .put(ActionType.QUIT, "Quit")
-          .build()
-      )
-    );
-  }
+        verify(consolePromptHelper, times(1)).promptForAction(
+            any(),
+            eq(
+                ImmutableMap.<ActionType, String>builder()
+                    .put(ActionType.CREATE_PACKAGE, "Create package")
+                    .put(ActionType.LOGOUT, "Logout")
+                    .put(ActionType.QUIT, "Quit")
+                    .build()));
+    }
 
   @Test
   @DisplayName("start | should show undo in menu if there are actions to undo")
