@@ -36,6 +36,7 @@ import com.sendsafely.exceptions.CreatePackageFailedException;
 import com.sendsafely.exceptions.DeletePackageException;
 import com.sendsafely.exceptions.FileOperationFailedException;
 import com.sendsafely.exceptions.FinalizePackageFailedException;
+import com.sendsafely.exceptions.GetPackagesException;
 import com.sendsafely.exceptions.InvalidCredentialsException;
 import com.sendsafely.exceptions.LimitExceededException;
 import com.sendsafely.exceptions.MessageException;
@@ -114,49 +115,8 @@ class SendSafelyCLI implements Callable<Integer> {
         if (!attemptLogin())
             return 1;
 
-        if (list) {
-            List<PackageReference> packages = sendSafelyAPI.getActivePackages();
-
-            if (packages.isEmpty()) {
-                System.out.println("No active packages");
-                return 0;
-            }
-
-            packages
-                .stream()
-                .map((p) -> {
-                    try {
-                        return sendSafelyAPI.getPackageInformation(p.getPackageId());
-                    } catch (PackageInformationFailedException e) {
-                        e.printStackTrace();
-                    }
-
-                    return null;
-                })
-                .filter(p -> p != null)
-                .forEach((p) -> {
-                    String pattern = "MM/dd/yyyy HH:mm:ss";
-                    DateFormat df = new SimpleDateFormat(pattern);
-                    String date = df.format(p.getPackageTimestamp());
-                    String prefix = p.getPackageId() + " - " + date + " - ";
-
-                    if (!p.getFiles().isEmpty()) {
-                        int count = p.getFiles().size();
-                        String fileNames = p.getFiles().stream().map(f -> f.getFileName())
-                            .collect(Collectors.joining(", "));
-                        fileNames =
-                            fileNames.length() > 100 ? fileNames.substring(0, 100) : fileNames;
-                        System.out.println(
-                            prefix + count + " file" + (count == 1 ? "" : "s") + " - " + fileNames);
-                    } else if (p.getPackageContainsMessage()) {
-                        System.out.println(prefix + "secure message");
-                    } else {
-                        System.out.println(prefix + "empty");
-                    }
-                });
-
-            return 0;
-        }
+        if (list)
+            return listPackages();
 
         if (!createPackage())
             return 1;
@@ -186,6 +146,50 @@ class SendSafelyCLI implements Callable<Integer> {
 
         if (!finalizePackage())
             return 1;
+
+        return 0;
+    }
+
+    private Integer listPackages() throws GetPackagesException {
+        List<PackageReference> packages = sendSafelyAPI.getActivePackages();
+
+        if (packages.isEmpty()) {
+            System.out.println("No active packages");
+            return 0;
+        }
+
+        packages
+            .stream()
+            .map((p) -> {
+                try {
+                    return sendSafelyAPI.getPackageInformation(p.getPackageId());
+                } catch (PackageInformationFailedException e) {
+                    e.printStackTrace();
+                }
+
+                return null;
+            })
+            .filter(p -> p != null)
+            .forEach((p) -> {
+                String pattern = "MM/dd/yyyy HH:mm:ss";
+                DateFormat df = new SimpleDateFormat(pattern);
+                String date = df.format(p.getPackageTimestamp());
+                String prefix = p.getPackageId() + " - " + date + " - ";
+
+                if (!p.getFiles().isEmpty()) {
+                    int count = p.getFiles().size();
+                    String fileNames = p.getFiles().stream().map(f -> f.getFileName())
+                        .collect(Collectors.joining(", "));
+                    fileNames =
+                        fileNames.length() > 100 ? fileNames.substring(0, 100) : fileNames;
+                    System.out.println(
+                        prefix + count + " file" + (count == 1 ? "" : "s") + " - " + fileNames);
+                } else if (p.getPackageContainsMessage()) {
+                    System.out.println(prefix + "secure message");
+                } else {
+                    System.out.println(prefix + "empty");
+                }
+            });
 
         return 0;
     }
