@@ -4,12 +4,15 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.Callable;
-
+import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
 import org.fusesource.jansi.AnsiConsole;
 import org.zeroturnaround.zip.ZipUtil;
@@ -23,6 +26,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import com.sendsafely.Package;
+import com.sendsafely.PackageReference;
 import com.sendsafely.Recipient;
 import com.sendsafely.SendSafely;
 import com.sendsafely.dto.PackageURL;
@@ -35,6 +39,7 @@ import com.sendsafely.exceptions.FinalizePackageFailedException;
 import com.sendsafely.exceptions.InvalidCredentialsException;
 import com.sendsafely.exceptions.LimitExceededException;
 import com.sendsafely.exceptions.MessageException;
+import com.sendsafely.exceptions.PackageInformationFailedException;
 import com.sendsafely.exceptions.RecipientFailedException;
 import com.sendsafely.exceptions.UploadFileException;
 import com.sendsafely.exceptions.UserInformationFailedException;
@@ -72,6 +77,9 @@ class SendSafelyCLI implements Callable<Integer> {
     @Option(names = {"-m", "--message"}, description = "Package secure message.")
     private String message;
 
+    @Option(names = {"-l", "--list"}, description = "List package history.")
+    private boolean list;
+
     @Option(names = {"-r", "--recipient"}, description = "Package recipient.")
     private String[] recipients = new String[0];
 
@@ -105,6 +113,51 @@ class SendSafelyCLI implements Callable<Integer> {
     public Integer call() throws Exception {
         if (!attemptLogin())
             return 1;
+
+        if (list) {
+            List<PackageReference> packages = sendSafelyAPI.getActivePackages();
+
+            if (packages.isEmpty()) {
+                System.out.println("No active packages");
+                return 0;
+            }
+
+            packages
+                .stream()
+                .map((p) -> {
+                    try {
+                        return sendSafelyAPI.getPackageInformation(p.getPackageId());
+                    } catch (PackageInformationFailedException e) {
+                        e.printStackTrace();
+                    }
+
+                    return null;
+                })
+                .filter(p -> p != null)
+                .forEach((p) -> {
+                    String pattern = "MM/dd/yyyy HH:mm:ss";
+                    DateFormat df = new SimpleDateFormat(pattern);
+                    String date = df.format(p.getPackageTimestamp());
+                    String prefix = p.getPackageId() + " - " + date + " - ";
+
+                    if (!p.getFiles().isEmpty()) {
+                        int count = p.getFiles().size();
+                        String fileNames = p.getFiles().stream().map(f -> f.getFileName())
+                            .collect(Collectors.joining(", "));
+                        fileNames =
+                            fileNames.length() > 100 ? fileNames.substring(0, 100) : fileNames;
+                        System.out.println(
+                            prefix + count + " file" + (count == 1 ? "" : "s") + " - " + fileNames);
+                    } else if (p.getPackageContainsMessage()) {
+                        System.out.println(prefix + "secure message");
+                    } else {
+                        System.out.println(prefix + "empty");
+                    }
+                });
+
+            return 0;
+        }
+
         if (!createPackage())
             return 1;
 
