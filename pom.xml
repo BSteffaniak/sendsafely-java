@@ -15,6 +15,7 @@
         <mockito.version>3.5.13</mockito.version>
         <mockito-junit.version>2.23.0</mockito-junit.version>
         <junit.version>5.7.0</junit.version>
+        <slf4j.version>2.0.7</slf4j.version>
     </properties>
 
     <groupId>org.example</groupId>
@@ -89,6 +90,17 @@
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
             <version>4.7.3</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
         </dependency>
     </dependencies>
 

@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.HashSet;
@@ -14,6 +15,7 @@ import java.util.Stack;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
+import org.bouncycastle.openpgp.PGPException;
 import org.fusesource.jansi.AnsiConsole;
 import org.zeroturnaround.zip.ZipUtil;
 
@@ -27,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import com.sendsafely.Package;
 import com.sendsafely.PackageReference;
+import com.sendsafely.Privatekey;
 import com.sendsafely.Recipient;
 import com.sendsafely.SendSafely;
 import com.sendsafely.dto.PackageURL;
@@ -34,13 +37,17 @@ import com.sendsafely.dto.UserInformation;
 import com.sendsafely.exceptions.ApproverRequiredException;
 import com.sendsafely.exceptions.CreatePackageFailedException;
 import com.sendsafely.exceptions.DeletePackageException;
+import com.sendsafely.exceptions.DownloadFileException;
 import com.sendsafely.exceptions.FileOperationFailedException;
 import com.sendsafely.exceptions.FinalizePackageFailedException;
+import com.sendsafely.exceptions.GetKeycodeFailedException;
 import com.sendsafely.exceptions.GetPackagesException;
 import com.sendsafely.exceptions.InvalidCredentialsException;
 import com.sendsafely.exceptions.LimitExceededException;
 import com.sendsafely.exceptions.MessageException;
 import com.sendsafely.exceptions.PackageInformationFailedException;
+import com.sendsafely.exceptions.PasswordRequiredException;
+import com.sendsafely.exceptions.PublicKeysFailedException;
 import com.sendsafely.exceptions.RecipientFailedException;
 import com.sendsafely.exceptions.UploadFileException;
 import com.sendsafely.exceptions.UserInformationFailedException;
@@ -65,6 +72,8 @@ class SendSafelyCLI implements Callable<Integer> {
     private UserInformation userInformation;
     private Set<String> addedRecipients;
     private boolean checkFile;
+    private String publicKeyId;
+    private String armoredKey;
 
     private Stack<Runnable> undoActions;
 
@@ -80,6 +89,15 @@ class SendSafelyCLI implements Callable<Integer> {
 
     @Option(names = {"-l", "--list"}, description = "List package history.")
     private boolean list;
+
+    @Option(names = {"-d", "--download"}, description = "Download package files.")
+    private String downloadPackageId;
+
+    @Option(names = {"-u", "--unzip"}, description = "Unzip zip file types.")
+    private boolean unzip;
+
+    @Option(names = {"--keygen"}, description = "Generate a new RSA Key pair to encrypt keycodes")
+    private String keygen;
 
     @Option(names = {"-r", "--recipient"}, description = "Package recipient.")
     private String[] recipients = new String[0];
@@ -118,6 +136,12 @@ class SendSafelyCLI implements Callable<Integer> {
         if (list)
             return listPackages();
 
+        if (downloadPackageId != null)
+            return downloadPackage(downloadPackageId);
+
+        if (keygen != null)
+            return keygen(keygen);
+
         if (!createPackage())
             return 1;
 
@@ -150,15 +174,57 @@ class SendSafelyCLI implements Callable<Integer> {
         return 0;
     }
 
-    private Integer listPackages() throws GetPackagesException {
-        List<PackageReference> packages = sendSafelyAPI.getActivePackages();
+    private Integer keygen(String keygen)
+        throws NoSuchAlgorithmException, PublicKeysFailedException, PGPException, IOException {
+        Privatekey key = sendSafelyAPI.generateKeyPair(keygen);
 
-        if (packages.isEmpty()) {
+        System.out.println(key.getPublicKeyId());
+        System.out.println(key.getArmoredKey());
+
+        return 0;
+    }
+
+    private Integer downloadPackage(String packageId)
+        throws PackageInformationFailedException, DownloadFileException, PasswordRequiredException,
+        GetKeycodeFailedException, IOException {
+        Package p = sendSafelyAPI.getPackageInformation(packageId);
+
+        for (com.sendsafely.File f : p.getFiles()) {
+            if (publicKeyId == null)
+                throw new RuntimeException(
+                    "RSA Key pair required to get the keycode for packages. Use `ss --keygen \"description\"` to create a key pair.");
+
+            Privatekey key = new Privatekey();
+            key.setPublicKeyId(publicKeyId);
+            key.setArmoredKey(armoredKey);
+            String keycode = sendSafelyAPI.getKeycode(packageId, key);
+
+            try (ProgressBar progressBar = new ASCIIProgressBar("File download", 100)) {
+                FileProgressBar fileProgressBar = new FileProgressBar(progressBar);
+                File file = sendSafelyAPI.downloadFile(p.getPackageId(), f.getFileId(), keycode,
+                    fileProgressBar);
+
+                if (unzip && f.getFileName().endsWith(".zip")) {
+                    ZipUtil.unpack(file, new File(f.getFileName().substring(0, f.getFileName().length() - ".zip".length())));
+                } else {
+                    Files.move(file.toPath(), new File(f.getFileName()).toPath());
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    private Integer listPackages()
+        throws GetPackagesException, DownloadFileException, PasswordRequiredException {
+        List<PackageReference> packageReferences = sendSafelyAPI.getActivePackages();
+
+        if (packageReferences.isEmpty()) {
             System.out.println("No active packages");
             return 0;
         }
 
-        packages
+        Package[] packages = packageReferences
             .stream()
             .map((p) -> {
                 try {
@@ -170,26 +236,28 @@ class SendSafelyCLI implements Callable<Integer> {
                 return null;
             })
             .filter(p -> p != null)
-            .forEach((p) -> {
-                String pattern = "MM/dd/yyyy HH:mm:ss";
-                DateFormat df = new SimpleDateFormat(pattern);
-                String date = df.format(p.getPackageTimestamp());
-                String prefix = p.getPackageId() + " - " + date + " - ";
+            .toArray(Package[]::new);
 
-                if (!p.getFiles().isEmpty()) {
-                    int count = p.getFiles().size();
-                    String fileNames = p.getFiles().stream().map(f -> f.getFileName())
-                        .collect(Collectors.joining(", "));
-                    fileNames =
-                        fileNames.length() > 100 ? fileNames.substring(0, 100) : fileNames;
-                    System.out.println(
-                        prefix + count + " file" + (count == 1 ? "" : "s") + " - " + fileNames);
-                } else if (p.getPackageContainsMessage()) {
-                    System.out.println(prefix + "secure message");
-                } else {
-                    System.out.println(prefix + "empty");
-                }
-            });
+        for (Package p : packages) {
+            String pattern = "MM/dd/yyyy HH:mm:ss";
+            DateFormat df = new SimpleDateFormat(pattern);
+            String date = df.format(p.getPackageTimestamp());
+            String prefix = p.getPackageId() + " - " + date + " - ";
+
+            if (!p.getFiles().isEmpty()) {
+                int count = p.getFiles().size();
+                String fileNames = p.getFiles().stream().map(f -> f.getFileName())
+                    .collect(Collectors.joining(", "));
+                fileNames =
+                    fileNames.length() > 100 ? fileNames.substring(0, 100) : fileNames;
+                System.out.println(
+                    prefix + count + " file" + (count == 1 ? "" : "s") + " - " + fileNames);
+            } else if (p.getPackageContainsMessage()) {
+                System.out.println(prefix + "secure message");
+            } else {
+                System.out.println(prefix + "empty");
+            }
+        }
 
         return 0;
     }
@@ -361,6 +429,8 @@ class SendSafelyCLI implements Callable<Integer> {
             JsonNode node = mapper.readTree(credsFile);
             apiKey = node.get("apiKey").asText();
             apiSecret = node.get("apiKeySecret").asText();
+            publicKeyId = node.get("publicKeyId").asText(null);
+            armoredKey = node.get("armoredKey").asText(null);
         } else {
             apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
             apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
