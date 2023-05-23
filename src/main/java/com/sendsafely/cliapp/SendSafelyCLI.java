@@ -574,12 +574,12 @@ class SendSafelyCLI implements Callable<Integer> {
             // successful
             // and failed file uploads
             try (ProgressBar progressBar = new ASCIIProgressBar("File Upload", 100)) {
-                FileUploadProgress fileUploadProgress = new FileUploadProgress(progressBar);
+                FileProgressBar fileProgressBar = new FileProgressBar(progressBar);
 
                 try {
                     com.sendsafely.File addedFile =
                         sendSafelyAPI.encryptAndUploadFile(currentPackage.getPackageId(),
-                            currentPackage.getKeyCode(), fileManager, fileUploadProgress);
+                            currentPackage.getKeyCode(), fileManager, fileProgressBar);
 
                     undoActions.push(() -> {
                         try {
