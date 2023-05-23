@@ -205,7 +205,8 @@ class SendSafelyCLI implements Callable<Integer> {
                     fileProgressBar);
 
                 if (unzip && f.getFileName().endsWith(".zip")) {
-                    ZipUtil.unpack(file, new File(f.getFileName().substring(0, f.getFileName().length() - ".zip".length())));
+                    ZipUtil.unpack(file, new File(
+                        f.getFileName().substring(0, f.getFileName().length() - ".zip".length())));
                 } else {
                     Files.move(file.toPath(), new File(f.getFileName()).toPath());
                 }
@@ -429,8 +430,11 @@ class SendSafelyCLI implements Callable<Integer> {
             JsonNode node = mapper.readTree(credsFile);
             apiKey = node.get("apiKey").asText();
             apiSecret = node.get("apiKeySecret").asText();
-            publicKeyId = node.get("publicKeyId").asText(null);
-            armoredKey = node.get("armoredKey").asText(null);
+
+            if (node.findValue("publicKeyId") != null) {
+                publicKeyId = node.get("publicKeyId").asText(null);
+                armoredKey = node.get("armoredKey").asText(null);
+            }
         } else {
             apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
             apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
