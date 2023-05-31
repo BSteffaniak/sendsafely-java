@@ -104,6 +104,9 @@ class SendSafelyCLI implements Callable<Integer> {
     @Option(names = {"-u", "--unzip"}, description = "Unzip zip file types.")
     private boolean unzip;
 
+    @Option(names = {"--read-last-message"}, description = "Read the last package's secure message")
+    private boolean readLastMessage;
+
     @Option(names = {"--read-message"}, description = "Read a package's secure message")
     private String readMessagePackageId;
 
@@ -147,11 +150,14 @@ class SendSafelyCLI implements Callable<Integer> {
         if (list)
             return listPackages();
 
-        if (pop)
-            return pop();
-
         if (readMessagePackageId != null)
             return readMessage(readMessagePackageId);
+
+        if (readLastMessage)
+            return readMessage(getLastPackage().getPackageId());
+
+        if (pop)
+            return pop();
 
         if (downloadPackageId != null)
             return downloadPackage(downloadPackageId);
