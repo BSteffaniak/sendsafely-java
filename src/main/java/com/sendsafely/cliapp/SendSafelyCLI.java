@@ -1,6 +1,7 @@
 package com.sendsafely.cliapp;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -239,19 +240,25 @@ class SendSafelyCLI implements Callable<Integer> {
 
     private Integer downloadPackage(String packageId)
         throws PackageInformationFailedException, DownloadFileException, PasswordRequiredException,
-        GetKeycodeFailedException, IOException {
+        GetKeycodeFailedException, IOException, MessageException {
         Package p = sendSafelyAPI.getPackageInformation(packageId);
 
+        String keycode = getPackageKeycode(packageId);
+
+        if (p.getPackageContainsMessage()) {
+            String message = getMessage(packageId);
+
+            File downloadedFile = new File("secure-message-" + packageId + ".txt");
+
+            try (FileWriter writer = new FileWriter(downloadedFile)) {
+                writer.write(message);
+            }
+
+            System.out
+                .println("Downloaded secure message to: " + downloadedFile.getCanonicalPath());
+        }
+
         for (com.sendsafely.File f : p.getFiles()) {
-            if (publicKeyId == null)
-                throw new RuntimeException(
-                    "RSA Key pair required to get the keycode for packages. Use `ss --keygen \"description\"` to create a key pair.");
-
-            Privatekey key = new Privatekey();
-            key.setPublicKeyId(publicKeyId);
-            key.setArmoredKey(armoredKey);
-            String keycode = sendSafelyAPI.getKeycode(packageId, key);
-
             try (ProgressBar progressBar = new ASCIIProgressBar("File download", 100)) {
                 FileProgressBar fileProgressBar = new FileProgressBar(progressBar);
                 File file = sendSafelyAPI.downloadFile(p.getPackageId(), f.getFileId(), keycode,
@@ -279,7 +286,7 @@ class SendSafelyCLI implements Callable<Integer> {
 
     private Integer pop() throws PackageInformationFailedException, DownloadFileException,
         PasswordRequiredException, GetKeycodeFailedException, IOException, GetPackagesException,
-        DeletePackageException {
+        DeletePackageException, MessageException {
         Package[] packages = getPackages();
 
         if (packages.length == 0) {
