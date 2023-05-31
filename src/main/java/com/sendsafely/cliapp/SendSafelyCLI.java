@@ -222,12 +222,20 @@ class SendSafelyCLI implements Callable<Integer> {
                 File file = sendSafelyAPI.downloadFile(p.getPackageId(), f.getFileId(), keycode,
                     fileProgressBar);
 
+                File downloadedFile = null;
+
                 if (unzip && f.getFileName().endsWith(".zip")) {
-                    ZipUtil.unpack(file, new File(
-                        f.getFileName().substring(0, f.getFileName().length() - ".zip".length())));
+                    downloadedFile = new File(
+                        f.getFileName().substring(0, f.getFileName().length() - ".zip".length()));
+
+                    ZipUtil.unpack(file, downloadedFile);
                 } else {
-                    Files.move(file.toPath(), new File(f.getFileName()).toPath());
+                    downloadedFile = new File(f.getFileName());
+
+                    Files.move(file.toPath(), downloadedFile.toPath());
                 }
+
+                System.out.println("Downloaded file: " + downloadedFile.getCanonicalPath());
             }
         }
 
