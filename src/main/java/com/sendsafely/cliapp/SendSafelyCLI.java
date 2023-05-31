@@ -243,7 +243,8 @@ class SendSafelyCLI implements Callable<Integer> {
     }
 
     private Integer pop() throws PackageInformationFailedException, DownloadFileException,
-        PasswordRequiredException, GetKeycodeFailedException, IOException, GetPackagesException {
+        PasswordRequiredException, GetKeycodeFailedException, IOException, GetPackagesException,
+        DeletePackageException {
         Package[] packages = getPackages();
 
         if (packages.length == 0) {
@@ -251,7 +252,14 @@ class SendSafelyCLI implements Callable<Integer> {
             return 1;
         }
 
-        return downloadPackage(packages[0].getPackageId());
+        int returnValue = 0;
+        String packageId = packages[0].getPackageId();
+
+        if ((returnValue = downloadPackage(packageId)) != 0) {
+            return returnValue;
+        }
+
+        return archivePackage(packageId);
     }
 
     private Integer listPackages()
