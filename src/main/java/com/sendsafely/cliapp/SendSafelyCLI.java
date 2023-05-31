@@ -100,6 +100,9 @@ class SendSafelyCLI implements Callable<Integer> {
     @Option(names = {"-u", "--unzip"}, description = "Unzip zip file types.")
     private boolean unzip;
 
+    @Option(names = {"--read-message"}, description = "Read a package's secure message")
+    private String readMessagePackageId;
+
     @Option(names = {"--keygen"}, description = "Generate a new RSA Key pair to encrypt keycodes")
     private String keygen;
 
@@ -142,6 +145,9 @@ class SendSafelyCLI implements Callable<Integer> {
 
         if (pop)
             return pop();
+
+        if (readMessagePackageId != null)
+            return readMessage(readMessagePackageId);
 
         if (downloadPackageId != null)
             return downloadPackage(downloadPackageId);
@@ -194,10 +200,41 @@ class SendSafelyCLI implements Callable<Integer> {
         return 0;
     }
 
+    private String getMessage(String packageId)
+        throws GetKeycodeFailedException, MessageException, PackageInformationFailedException {
+        Package pkg = sendSafelyAPI.getPackageInformation(packageId);
+
+        if (!pkg.getPackageContainsMessage()) {
+            throw new RuntimeException("Package does not contain a secure message.");
+        }
+
+        String keycode = getPackageKeycode(packageId);
+
+        return sendSafelyAPI.getPackageMessage(sendSafelyAPI.getPackageLink(packageId, keycode));
+    }
+
+    private Integer readMessage(String packageId)
+        throws GetKeycodeFailedException, MessageException, PackageInformationFailedException {
+        System.out.print(getMessage(packageId));
+
+        return 0;
+    }
+
     private Integer archivePackage(String packageId) throws DeletePackageException {
         sendSafelyAPI.deletePackage(packageId);
 
         return 0;
+    }
+
+    private String getPackageKeycode(String packageId) throws GetKeycodeFailedException {
+        if (publicKeyId == null)
+            throw new RuntimeException(
+                "RSA Key pair required to get the keycode for packages. Use `ss --keygen \"description\"` to create a key pair.");
+
+        Privatekey key = new Privatekey();
+        key.setPublicKeyId(publicKeyId);
+        key.setArmoredKey(armoredKey);
+        return sendSafelyAPI.getKeycode(packageId, key);
     }
 
     private Integer downloadPackage(String packageId)
