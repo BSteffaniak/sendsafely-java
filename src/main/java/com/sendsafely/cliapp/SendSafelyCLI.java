@@ -96,6 +96,9 @@ class SendSafelyCLI implements Callable<Integer> {
     @Option(names = {"-d", "--download"}, description = "Download package files.")
     private String downloadPackageId;
 
+    @Option(names = {"--archive"}, description = "Archive a package.")
+    private String archivePackageId;
+
     @Option(names = {"-u", "--unzip"}, description = "Unzip zip file types.")
     private boolean unzip;
 
@@ -145,6 +148,9 @@ class SendSafelyCLI implements Callable<Integer> {
         if (downloadPackageId != null)
             return downloadPackage(downloadPackageId);
 
+        if (archivePackageId != null)
+            return archivePackage(archivePackageId);
+
         if (keygen != null)
             return keygen(keygen);
 
@@ -186,6 +192,12 @@ class SendSafelyCLI implements Callable<Integer> {
 
         System.out.println(key.getPublicKeyId());
         System.out.println(key.getArmoredKey());
+
+        return 0;
+    }
+
+    private Integer archivePackage(String packageId) throws DeletePackageException {
+        sendSafelyAPI.deletePackage(packageId);
 
         return 0;
     }
