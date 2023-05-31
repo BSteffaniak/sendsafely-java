@@ -90,6 +90,9 @@ class SendSafelyCLI implements Callable<Integer> {
     @Option(names = {"-l", "--list"}, description = "List package history.")
     private boolean list;
 
+    @Option(names = {"--pop"}, description = "Download the most recent package's files.")
+    private boolean pop;
+
     @Option(names = {"-d", "--download"}, description = "Download package files.")
     private String downloadPackageId;
 
@@ -135,6 +138,9 @@ class SendSafelyCLI implements Callable<Integer> {
 
         if (list)
             return listPackages();
+
+        if (pop)
+            return pop();
 
         if (downloadPackageId != null)
             return downloadPackage(downloadPackageId);
@@ -216,28 +222,26 @@ class SendSafelyCLI implements Callable<Integer> {
         return 0;
     }
 
+    private Integer pop() throws PackageInformationFailedException, DownloadFileException,
+        PasswordRequiredException, GetKeycodeFailedException, IOException, GetPackagesException {
+        Package[] packages = getPackages();
+
+        if (packages.length == 0) {
+            System.out.println("No active packages");
+            return 1;
+        }
+
+        return downloadPackage(packages[0].getPackageId());
+    }
+
     private Integer listPackages()
         throws GetPackagesException, DownloadFileException, PasswordRequiredException {
-        List<PackageReference> packageReferences = sendSafelyAPI.getActivePackages();
+        Package[] packages = getPackages();
 
-        if (packageReferences.isEmpty()) {
+        if (packages.length == 0) {
             System.out.println("No active packages");
             return 0;
         }
-
-        Package[] packages = packageReferences
-            .stream()
-            .map((p) -> {
-                try {
-                    return sendSafelyAPI.getPackageInformation(p.getPackageId());
-                } catch (PackageInformationFailedException e) {
-                    e.printStackTrace();
-                }
-
-                return null;
-            })
-            .filter(p -> p != null)
-            .toArray(Package[]::new);
 
         for (Package p : packages) {
             String pattern = "MM/dd/yyyy HH:mm:ss";
@@ -261,6 +265,23 @@ class SendSafelyCLI implements Callable<Integer> {
         }
 
         return 0;
+    }
+
+    private Package[] getPackages()
+        throws GetPackagesException, DownloadFileException, PasswordRequiredException {
+        return sendSafelyAPI.getActivePackages()
+            .stream()
+            .map((p) -> {
+                try {
+                    return sendSafelyAPI.getPackageInformation(p.getPackageId());
+                } catch (PackageInformationFailedException e) {
+                    e.printStackTrace();
+                }
+
+                return null;
+            })
+            .filter(p -> p != null)
+            .toArray(Package[]::new);
     }
 
     /**
