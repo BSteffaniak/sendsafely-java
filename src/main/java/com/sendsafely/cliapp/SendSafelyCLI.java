@@ -86,6 +86,9 @@ class SendSafelyCLI implements Callable<Integer> {
     @Option(names = {"-m", "--message"}, description = "Package secure message.")
     private String message;
 
+    @Option(names = {"-q", "--quiet"}, description = "Only print out necessary output.")
+    private boolean quiet;
+
     @Option(names = {"-l", "--list"}, description = "List package history.")
     private boolean list;
 
@@ -254,8 +257,7 @@ class SendSafelyCLI implements Callable<Integer> {
                 writer.write(message);
             }
 
-            System.out
-                .println("Downloaded secure message to: " + downloadedFile.getCanonicalPath());
+            log("Downloaded secure message: " + downloadedFile.getCanonicalPath());
         }
 
         for (com.sendsafely.File f : p.getFiles()) {
@@ -309,7 +311,7 @@ class SendSafelyCLI implements Callable<Integer> {
         Package[] packages = getPackages();
 
         if (packages.length == 0) {
-            System.out.println("No active packages");
+            log("No active packages");
             return 0;
         }
 
@@ -543,13 +545,13 @@ class SendSafelyCLI implements Callable<Integer> {
             sendSafelyAPI.verifyCredentials();
             userInformation = sendSafelyAPI.getUserInformation();
 
-            System.out.println("Successfully logged in! Welcome, " + userInformation.getFirstName()
+            log("Successfully logged in! Welcome, " + userInformation.getFirstName()
                 + "!!! Wooooo!");
 
             undoActions.push(() -> {
                 logoutUser();
 
-                System.out.println("Logged out!!");
+                log("Logged out!!");
 
                 try {
                     loginUser();
@@ -596,13 +598,13 @@ class SendSafelyCLI implements Callable<Integer> {
         try {
             currentPackage = sendSafelyAPI.createPackage();
 
-            System.out.println("Successfully created package");
+            log("Successfully created package");
 
             undoActions.push(() -> {
                 try {
                     deleteCurrentPackage();
 
-                    System.out.println("Successfully deleted package");
+                    log("Successfully deleted package");
                 } catch (DeletePackageException e) {
                     System.err.println("Failed to delete packages: " + e.getError());
                 }
@@ -624,7 +626,7 @@ class SendSafelyCLI implements Callable<Integer> {
             sendSafelyAPI.encryptAndUploadMessage(currentPackage.getPackageId(),
                 currentPackage.getKeyCode(), message);
 
-            System.out.println("Successfully uploaded message");
+            log("Successfully uploaded message");
 
             return true;
         } catch (MessageException e) {
@@ -655,7 +657,7 @@ class SendSafelyCLI implements Callable<Integer> {
      */
     public void deleteFile(File file, com.sendsafely.File addedFile)
         throws FileOperationFailedException, IOException {
-        System.out.println("Deleting file '" + file.getCanonicalPath() + "'");
+        log("Deleting file '" + file.getCanonicalPath() + "'");
 
         sendSafelyAPI.deleteFile(currentPackage.getPackageId(), currentPackage.getRootDirectoryId(),
             addedFile.getFileId());
@@ -724,7 +726,7 @@ class SendSafelyCLI implements Callable<Integer> {
                         "Zip file already exists at location " + tempFile.getAbsolutePath());
                 }
 
-                System.out.println("Creating zip file at " + tempFile.getAbsolutePath());
+                log("Creating zip file at " + tempFile.getAbsolutePath());
 
                 ZipUtil.pack(file, tempFile);
 
@@ -750,7 +752,7 @@ class SendSafelyCLI implements Callable<Integer> {
                         try {
                             deleteFile(uploadedFile, addedFile);
 
-                            System.out.println("Deleted file successfully");
+                            log("Deleted file successfully");
                         } catch (FileOperationFailedException | IOException e) {
                             System.err
                                 .println("Failed to delete file from package: " + e.getMessage());
@@ -763,12 +765,12 @@ class SendSafelyCLI implements Callable<Integer> {
                 }
             }
 
-            System.out.println("File successfully uploaded");
+            log("File successfully uploaded");
 
             if (tempDir != null) {
                 FileUtils.deleteDirectory(tempDir);
 
-                System.out.println("Temporary zip file deleted");
+                log("Temporary zip file deleted");
             }
 
             return true;
@@ -787,7 +789,7 @@ class SendSafelyCLI implements Callable<Integer> {
      * Quit the app with exit code 0.
      */
     public void quit() {
-        System.out.println("Bye ♥");
+        log("Bye ♥");
 
         System.exit(0);
     }
@@ -849,10 +851,10 @@ class SendSafelyCLI implements Callable<Integer> {
 
             addedRecipients.add(recipientEmail);
 
-            System.out.println("Successfully added recipient '" + recipientEmail + "'");
+            log("Successfully added recipient '" + recipientEmail + "'");
 
             undoActions.push(() -> {
-                System.out.println("Removing recipient '" + recipientEmail + "'");
+                log("Removing recipient '" + recipientEmail + "'");
 
                 try {
                     sendSafelyAPI.removeRecipient(currentPackage.getPackageId(),
@@ -860,7 +862,7 @@ class SendSafelyCLI implements Callable<Integer> {
 
                     addedRecipients.remove(recipientEmail);
 
-                    System.out.println("Recipient removed successfully");
+                    log("Recipient removed successfully");
                 } catch (RecipientFailedException e) {
                     System.err.println("Failed to remove recipient: " + e.getMessage());
                 }
@@ -872,5 +874,12 @@ class SendSafelyCLI implements Callable<Integer> {
 
             return false;
         }
+    }
+
+    private void log(String message) {
+        if (quiet)
+            return;
+
+        System.out.println(message);
     }
 }
