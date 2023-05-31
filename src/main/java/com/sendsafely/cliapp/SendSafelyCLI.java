@@ -247,7 +247,7 @@ class SendSafelyCLI implements Callable<Integer> {
         Package[] packages = getPackages();
 
         if (packages.length == 0) {
-            System.out.println("No active packages");
+            System.err.println("No active packages");
             return 1;
         }
 
