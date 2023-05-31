@@ -272,12 +272,12 @@ class SendSafelyCLI implements Callable<Integer> {
         }
 
         for (com.sendsafely.File f : p.getFiles()) {
+            File downloadedFile = null;
+
             try (ProgressBar progressBar = new ASCIIProgressBar("File download", 100)) {
                 FileProgressBar fileProgressBar = new FileProgressBar(progressBar);
                 File file = sendSafelyAPI.downloadFile(p.getPackageId(), f.getFileId(), keycode,
                     fileProgressBar);
-
-                File downloadedFile = null;
 
                 if (unzip && f.getFileName().endsWith(".zip")) {
                     downloadedFile = new File(
@@ -289,9 +289,9 @@ class SendSafelyCLI implements Callable<Integer> {
 
                     Files.move(file.toPath(), downloadedFile.toPath());
                 }
-
-                System.out.println("Downloaded file: " + downloadedFile.getCanonicalPath());
             }
+
+            log("Downloaded file: " + downloadedFile.getCanonicalPath());
         }
 
         return 0;
