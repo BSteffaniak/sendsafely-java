@@ -286,18 +286,22 @@ class SendSafelyCLI implements Callable<Integer> {
         return 0;
     }
 
-    private Integer pop() throws PackageInformationFailedException, DownloadFileException,
-        PasswordRequiredException, GetKeycodeFailedException, IOException, GetPackagesException,
-        DeletePackageException, MessageException {
+    private Package getLastPackage()
+        throws GetPackagesException, DownloadFileException, PasswordRequiredException {
         Package[] packages = getPackages();
 
         if (packages.length == 0) {
-            System.err.println("No active packages");
-            return 1;
+            throw new RuntimeException("No active packages");
         }
 
+        return packages[0];
+    }
+
+    private Integer pop() throws PackageInformationFailedException, DownloadFileException,
+        PasswordRequiredException, GetKeycodeFailedException, IOException, GetPackagesException,
+        DeletePackageException, MessageException {
+        String packageId = getLastPackage().getPackageId();
         int returnValue = 0;
-        String packageId = packages[0].getPackageId();
 
         if ((returnValue = downloadPackage(packageId)) != 0) {
             return returnValue;
