@@ -224,8 +224,13 @@ class SendSafelyCLI implements Callable<Integer> {
     }
 
     private Integer readMessage(String packageId)
-        throws GetKeycodeFailedException, MessageException, PackageInformationFailedException {
+        throws GetKeycodeFailedException, MessageException, PackageInformationFailedException,
+        DeletePackageException {
         System.out.print(getMessage(packageId));
+
+        if (pop) {
+            return archivePackage(packageId);
+        }
 
         return 0;
     }
