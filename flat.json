@@ -13,7 +13,8 @@
       "echo '#!/bin/bash' > bin/ss",
       "echo 'cd \"$(dirname \"${BASH_SOURCE[0]}\")\"' >> bin/ss",
       "echo 'java -jar ./target/ss.jar \"$@\"' >> bin/ss",
-      "chmod +x bin/ss"
+      "chmod +x bin/ss",
+      "airship bin"
     ]
   },
   "sources": {
