@@ -334,7 +334,7 @@ class SendSafelyCLI implements Callable<Integer> {
             String pattern = "MM/dd/yyyy HH:mm:ss";
             DateFormat df = new SimpleDateFormat(pattern);
             String date = df.format(p.getPackageTimestamp());
-            String prefix = p.getPackageId() + " - " + date + " - ";
+            String message = p.getPackageId() + " - " + date + " - ";
 
             if (!p.getFiles().isEmpty()) {
                 int count = p.getFiles().size();
@@ -342,13 +342,17 @@ class SendSafelyCLI implements Callable<Integer> {
                     .collect(Collectors.joining(", "));
                 fileNames =
                     fileNames.length() > 100 ? fileNames.substring(0, 100) : fileNames;
-                System.out.println(
-                    prefix + count + " file" + (count == 1 ? "" : "s") + " - " + fileNames);
+                message += count + " file" + (count == 1 ? "" : "s") + " - " + fileNames;
             } else if (p.getPackageContainsMessage()) {
-                System.out.println(prefix + "secure message");
+                message += "secure message";
             } else {
-                System.out.println(prefix + "empty");
+                message += "empty";
             }
+
+            message += " - " + p.getState().toString().substring("PACKAGE_STATE_".length())
+                .toLowerCase().replace("_", " ");
+
+            System.out.println(message);
         }
 
         return 0;
