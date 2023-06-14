@@ -1,10 +1,4 @@
 {
-  "name": "SendSafely CLI",
-  "version": "0.1.0",
-  "description": "SendSafely Java CLI",
-  "author": "Braden Steffaniak",
-  "license": "ISC",
-  "assets": ["bin/target"],
   "scripts": {
     "build": [
       "mvn install",
