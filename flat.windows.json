@@ -1,0 +1,27 @@
+{
+  "name": "SendSafely CLI",
+  "version": "0.1.0",
+  "description": "SendSafely Java CLI",
+  "author": "Braden Steffaniak",
+  "license": "ISC",
+  "assets": ["bin/target"],
+  "scripts": {
+    "build": [
+      "mvn install",
+      "if not exist bin ( mkdir bin )",
+      "if not exist bin/target ( mkdir bin/target )",
+      "cp target/sendsafely-java-1.0-SNAPSHOT-jar-with-dependencies.jar bin/target/ss.jar",
+      "echo @echo off > bin/ss.bat",
+      "echo java -jar \"%~p0/target/ss.jar\" %* >> bin/ss.bat",
+      "airship bin"
+    ]
+  },
+  "sources": {
+    "main": {
+      "dependencies": {},
+      "bin": {
+        "ss": "bin/ss.bat"
+      }
+    }
+  }
+}
