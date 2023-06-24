@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -151,7 +152,7 @@ class SendSafelyCLI implements Callable<Integer> {
             return listPackages();
 
         if (readMessagePackageId != null)
-            return readMessage(readMessagePackageId);
+            return readMessage(parsePackageId(readMessagePackageId));
 
         if (readLastMessage)
             return readMessage(getLastPackage().getPackageId());
@@ -160,10 +161,10 @@ class SendSafelyCLI implements Callable<Integer> {
             return pop();
 
         if (downloadPackageId != null)
-            return downloadPackage(downloadPackageId);
+            return downloadPackage(parsePackageId(downloadPackageId));
 
         if (archivePackageId != null)
-            return archivePackage(archivePackageId);
+            return archivePackage(parsePackageId(archivePackageId));
 
         if (keygen != null)
             return keygen(keygen);
@@ -198,6 +199,50 @@ class SendSafelyCLI implements Callable<Integer> {
             return 1;
 
         return 0;
+    }
+
+    private String parsePackageId(String value)
+        throws GetPackagesException, DownloadFileException, PasswordRequiredException {
+        Package[] packages = getPackages();
+
+        if (value.startsWith("@")) {
+            if (packages.length == 0)
+                throw new RuntimeException(
+                    "No packages to reference by index. Package list is empty.");
+
+            int index = Integer.parseInt(value.substring(1));
+
+            if (index < 0 || index >= packages.length) {
+                throw new RuntimeException("Index " + index
+                    + " is out of bounds. Valid indexes range from 0 to " + packages.length + ".");
+            }
+        }
+
+        Package[] packageMatches = Arrays.stream(packages)
+            .filter(p -> p.getPackageId().toLowerCase().contains(value))
+            .toArray(Package[]::new);
+
+        if (packageMatches.length == 0) {
+            throw new RuntimeException("No packages match value '" + value + "'");
+        }
+
+        if (packageMatches.length == 1)
+            return packageMatches[0].getPackageId();
+
+        Package[] strictPackageMatches = Arrays.stream(packageMatches)
+            .filter(p -> p.getPackageId().toLowerCase().startsWith(value))
+            .toArray(Package[]::new);
+
+        if (strictPackageMatches.length == 1)
+            return strictPackageMatches[0].getPackageId();
+
+        String packageIds = Arrays.stream(strictPackageMatches)
+            .map(p -> p.getPackageId())
+            .map(p -> "'" + p + "'")
+            .collect(Collectors.joining(", "));
+
+        throw new RuntimeException(
+            "Ambiguous package id value '" + value + "'. Matches " + packageIds);
     }
 
     private Integer keygen(String keygen)
