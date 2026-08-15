@@ -33,3 +33,10 @@ It is also possible to run tests from most IDE's directly from the file.
 * `FINALIZE` Finalize the package and get a secure link for the package.
 * `UNDO` Undo the most previously enacted action.
 * `QUIT` Quit the CLI application. Don't go!!!
+
+## Error reporting
+
+Runtime failures are written to stderr with their sanitized underlying exception and cause chain.
+Use `--debug` to include a sanitized stack trace. `--quiet` suppresses routine status output, but
+never suppresses errors. API credentials, request signatures, package keycodes, and private key
+material are redacted from both normal and debug error output.

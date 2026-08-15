@@ -74,6 +74,7 @@ class SendSafelyCLI implements Callable<Integer> {
     private boolean checkFile;
     private String publicKeyId;
     private String armoredKey;
+    private final ErrorReporter errorReporter;
 
     private Stack<Runnable> undoActions;
 
@@ -89,6 +90,9 @@ class SendSafelyCLI implements Callable<Integer> {
 
     @Option(names = {"-q", "--quiet"}, description = "Only print out necessary output.")
     private boolean quiet;
+
+    @Option(names = {"--debug"}, description = "Print stack traces for failures.")
+    private boolean debug;
 
     @Option(names = {"-l", "--list"}, description = "List package history.")
     private boolean list;
@@ -131,12 +135,18 @@ class SendSafelyCLI implements Callable<Integer> {
             cli.checkFile = !Objects.equals(System.getenv("DISABLE_CREDS_FILE"), "true");
 
             if (args.length > 0) {
-                System.exit(new CommandLine(cli).execute(args));
+                CommandLine commandLine = new CommandLine(cli);
+                commandLine.setExecutionExceptionHandler((exception, cmd, parseResult) -> {
+                    cli.errorReporter.setDebug(cli.debug);
+                    cli.errorReporter.report("SendSafely command failed", exception);
+                    return 1;
+                });
+                System.exit(commandLine.execute(args));
             }
 
             cli.start();
         } catch (CLIException | IOException exception) {
-            System.err.println(exception.getMessage());
+            cli.errorReporter.report("SendSafely CLI failed", exception);
 
             System.exit(1);
         }
@@ -145,6 +155,8 @@ class SendSafelyCLI implements Callable<Integer> {
     }
 
     public Integer call() throws Exception {
+        errorReporter.setDebug(debug);
+
         if (!attemptLogin())
             return 1;
 
@@ -411,7 +423,7 @@ class SendSafelyCLI implements Callable<Integer> {
                 try {
                     return sendSafelyAPI.getPackageInformation(p.getPackageId());
                 } catch (PackageInformationFailedException e) {
-                    e.printStackTrace();
+                    errorReporter.report("Failed to load package " + p.getPackageId(), e);
                 }
 
                 return null;
@@ -437,7 +449,12 @@ class SendSafelyCLI implements Callable<Integer> {
      * @param consolePromptHelper An object with prompt helper functions.
      */
     public SendSafelyCLI(ConsolePromptHelper consolePromptHelper) {
+        this(consolePromptHelper, new ErrorReporter(System.err));
+    }
+
+    SendSafelyCLI(ConsolePromptHelper consolePromptHelper, ErrorReporter errorReporter) {
         this.consolePromptHelper = consolePromptHelper;
+        this.errorReporter = errorReporter;
 
         undoActions = new Stack<>();
         addedRecipients = new HashSet<>();
@@ -510,7 +527,7 @@ class SendSafelyCLI implements Callable<Integer> {
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            errorReporter.report("Interactive SendSafely operation failed", e);
         } finally {
             restoreTerminalFactory();
         }
@@ -578,28 +595,36 @@ class SendSafelyCLI implements Callable<Integer> {
      * @return Returns true if the user successfully logged in. False otherwise.
      */
     public boolean attemptLogin() throws IOException {
-        String apiKey = null;
-        String apiSecret = null;
+        String apiKey;
+        String apiSecret;
 
         if (checkFile && credsFile.exists()) {
-            ObjectMapper mapper = new ObjectMapper();
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode node = mapper.readTree(credsFile);
+                apiKey = requiredCredential(node, "apiKey");
+                apiSecret = requiredCredential(node, "apiKeySecret");
 
-            JsonNode node = mapper.readTree(credsFile);
-            apiKey = node.get("apiKey").asText();
-            apiSecret = node.get("apiKeySecret").asText();
-
-            if (node.findValue("publicKeyId") != null) {
-                publicKeyId = node.get("publicKeyId").asText(null);
-                armoredKey = node.get("armoredKey").asText(null);
+                if (node.findValue("publicKeyId") != null) {
+                    publicKeyId = node.get("publicKeyId").asText(null);
+                    armoredKey = node.get("armoredKey").asText(null);
+                    errorReporter.addSecret(armoredKey);
+                }
+            } catch (IOException | IllegalArgumentException e) {
+                errorReporter.report("Failed to read credentials from " + credsFile, e);
+                return false;
             }
         } else {
             apiKey = consolePromptHelper.promptForPrivateString("Enter api key:");
             apiSecret = consolePromptHelper.promptForPrivateString("Enter api secret (shhhhhh):");
         }
 
-        if (apiKey.isEmpty() || apiSecret.isEmpty()) {
-            System.err.println("Invalid credentials");
+        errorReporter.addSecret(apiKey);
+        errorReporter.addSecret(apiSecret);
 
+        if (apiKey == null || apiKey.isEmpty() || apiSecret == null || apiSecret.isEmpty()) {
+            errorReporter.report("Failed to load SendSafely credentials",
+                new IllegalArgumentException("API key and API key secret must not be empty"));
             return false;
         }
 
@@ -607,29 +632,41 @@ class SendSafelyCLI implements Callable<Integer> {
 
         try {
             sendSafelyAPI.verifyCredentials();
-            userInformation = sendSafelyAPI.getUserInformation();
-
-            log("Successfully logged in! Welcome, " + userInformation.getFirstName()
-                + "!!! Wooooo!");
-
-            undoActions.push(() -> {
-                logoutUser();
-
-                log("Logged out!!");
-
-                try {
-                    loginUser();
-                } catch (IOException e) {
-                    System.err.println("Failed to login user: " + e.getMessage());
-                }
-            });
-
-            return true;
-        } catch (InvalidCredentialsException | UserInformationFailedException e) {
-            System.err.println("Invalid credentials");
-
+        } catch (InvalidCredentialsException e) {
+            errorReporter.report("Failed to verify SendSafely credentials", e);
             return false;
         }
+
+        try {
+            userInformation = sendSafelyAPI.getUserInformation();
+        } catch (UserInformationFailedException e) {
+            errorReporter.report(
+                "Credentials were verified, but SendSafely user information could not be loaded", e);
+            return false;
+        }
+
+        log("Successfully logged in! Welcome, " + userInformation.getFirstName()
+            + "!!! Wooooo!");
+
+        undoActions.push(() -> {
+            logoutUser();
+            log("Logged out!!");
+            try {
+                loginUser();
+            } catch (IOException e) {
+                errorReporter.report("Failed to login user", e);
+            }
+        });
+
+        return true;
+    }
+
+    private String requiredCredential(JsonNode node, String field) {
+        if (node == null || !node.has(field) || node.get(field).isNull()) {
+            throw new IllegalArgumentException(
+                "Credentials file is missing required field \"" + field + "\"");
+        }
+        return node.get(field).asText();
     }
 
     /**
@@ -670,13 +707,13 @@ class SendSafelyCLI implements Callable<Integer> {
 
                     log("Successfully deleted package");
                 } catch (DeletePackageException e) {
-                    System.err.println("Failed to delete packages: " + e.getError());
+                    errorReporter.report("Failed to delete package", e);
                 }
             });
 
             return true;
         } catch (CreatePackageFailedException | LimitExceededException e) {
-            System.err.println("Failed to create package: " + e);
+            errorReporter.report("Failed to create package", e);
 
             return false;
         }
@@ -694,7 +731,7 @@ class SendSafelyCLI implements Callable<Integer> {
 
             return true;
         } catch (MessageException e) {
-            System.err.println("Failed to upload message: " + e);
+            errorReporter.report("Failed to upload message", e);
 
             return false;
         }
@@ -707,7 +744,7 @@ class SendSafelyCLI implements Callable<Integer> {
         try {
             return uploadMessage(FileUtils.readFileToString(messageFile, StandardCharsets.UTF_8));
         } catch (IOException e) {
-            System.err.println("Failed to read file contents: " + e);
+            errorReporter.report("Failed to read message file", e);
 
             return false;
         }
@@ -737,7 +774,7 @@ class SendSafelyCLI implements Callable<Integer> {
         try {
             return new DefaultFileManager(file);
         } catch (IOException e) {
-            throw new FilePromptException("Failed to create file manager: " + e);
+            throw new FilePromptException("Failed to create file manager", e);
         }
     }
 
@@ -750,7 +787,7 @@ class SendSafelyCLI implements Callable<Integer> {
 
             return uploadFile(file, false);
         } catch (FilePromptException e) {
-            System.err.println(e.getMessage());
+            errorReporter.report("SendSafely operation failed", e);
 
             if (consolePromptHelper.promptForConfirmation("Try a new file?")) {
                 return uploadFile();
@@ -778,7 +815,7 @@ class SendSafelyCLI implements Callable<Integer> {
                 try {
                     name = file.getCanonicalFile().getName();
                 } catch (IOException e) {
-                    System.err.println("Failed to get canonical file name");
+                    errorReporter.report("Failed to get canonical file name", e);
                 }
 
                 tempDir = Files.createTempDirectory("ss-" + name).toFile();
@@ -818,14 +855,13 @@ class SendSafelyCLI implements Callable<Integer> {
 
                             log("Deleted file successfully");
                         } catch (FileOperationFailedException | IOException e) {
-                            System.err
-                                .println("Failed to delete file from package: " + e.getMessage());
+                            errorReporter.report("Failed to delete file from package", e);
                         }
                     });
 
                     progressBar.stepTo(100);
                 } catch (LimitExceededException | UploadFileException e) {
-                    System.err.println("Failed to upload file:" + e.getMessage());
+                    errorReporter.report("Failed to upload file", e);
                 }
             }
 
@@ -839,7 +875,7 @@ class SendSafelyCLI implements Callable<Integer> {
 
             return true;
         } catch (FilePromptException e) {
-            System.err.println(e.getMessage());
+            errorReporter.report("SendSafely operation failed", e);
 
             if (consolePromptHelper.promptForConfirmation("Try a new file?")) {
                 return uploadFile();
@@ -878,7 +914,7 @@ class SendSafelyCLI implements Callable<Integer> {
             return true;
         } catch (LimitExceededException | FinalizePackageFailedException
             | ApproverRequiredException e) {
-            System.err.println("Failed to finalize package: " + e.getMessage());
+            errorReporter.report("Failed to finalize package", e);
 
             return false;
         }
@@ -928,13 +964,13 @@ class SendSafelyCLI implements Callable<Integer> {
 
                     log("Recipient removed successfully");
                 } catch (RecipientFailedException e) {
-                    System.err.println("Failed to remove recipient: " + e.getMessage());
+                    errorReporter.report("Failed to remove recipient", e);
                 }
             });
 
             return true;
         } catch (LimitExceededException | RecipientFailedException e) {
-            System.err.println("Failed to add recipient: " + e.getMessage());
+            errorReporter.report("Failed to add recipient", e);
 
             return false;
         }
