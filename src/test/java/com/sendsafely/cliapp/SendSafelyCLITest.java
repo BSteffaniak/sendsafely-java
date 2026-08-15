@@ -2,6 +2,7 @@ package com.sendsafely.cliapp;
 
 import com.google.common.collect.ImmutableMap;
 import com.sendsafely.Package;
+import com.sendsafely.Privatekey;
 import com.sendsafely.SendSafely;
 import com.sendsafely.dto.UserInformation;
 import com.sendsafely.exceptions.*;
@@ -14,8 +15,15 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -475,5 +483,91 @@ public class SendSafelyCLITest {
     sendSafelyCLI.undoPreviousAction();
 
     verify(sendSafelyCLI, times(2)).deleteFile(any(), any());
+  }
+
+  @Test
+  void keygenPersistsKeyWithoutPrintingPrivateMaterial() throws Exception {
+    Path directory = Files.createTempDirectory("sendsafely-keygen");
+    Path credentials = directory.resolve("credentials.json");
+    Files.write(credentials,
+      ("{\"apiKey\":\"api-key\",\"apiKeySecret\":\"api-secret\"," +
+        "\"preserved\":\"value\"}").getBytes(StandardCharsets.UTF_8));
+
+    ByteArrayOutputStream errors = new ByteArrayOutputStream();
+    SendSafelyCLI cli = new SendSafelyCLI(consolePromptHelper,
+      new ErrorReporter(new PrintStream(errors)), credentials.toFile());
+    cli.setSendSafelyAPI(sendSafely);
+    cli.setAuthenticatedCredentials("api-key", "api-secret");
+    cli.setCheckFile(true);
+
+    Privatekey key = new Privatekey();
+    key.setPublicKeyId("public-key-id");
+    key.setArmoredKey("private-key-material");
+    when(sendSafely.generateKeyPair("laptop")).thenReturn(key);
+
+    PrintStream originalOut = System.out;
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    try {
+      System.setOut(new PrintStream(output));
+      assertEquals(0, cli.keygen("laptop"));
+    } finally {
+      System.setOut(originalOut);
+    }
+
+    String stored = new String(Files.readAllBytes(credentials), StandardCharsets.UTF_8);
+    assertTrue(stored.contains("\"apiKey\":\"api-key\""));
+    assertTrue(stored.contains("\"apiKeySecret\":\"api-secret\""));
+    assertTrue(stored.contains("\"publicKeyId\":\"public-key-id\""));
+    assertTrue(stored.contains("\"armoredKey\":\"private-key-material\""));
+    assertTrue(stored.contains("\"preserved\":\"value\""));
+    assertEquals("public-key-id", cli.getPublicKeyId());
+    assertEquals("private-key-material", cli.getArmoredKey());
+    assertTrue(output.toString().contains("public-key-id"));
+    assertFalse(output.toString().contains("private-key-material"));
+    assertFalse(errors.toString().contains("private-key-material"));
+
+    try {
+      Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(credentials);
+      assertEquals("rw-------", java.nio.file.attribute.PosixFilePermissions.toString(permissions));
+    } catch (UnsupportedOperationException ignored) {
+      // POSIX permissions are not available on every supported platform.
+    }
+  }
+
+  @Test
+  void keygenRejectsDisabledCredentialStorageBeforeGeneratingKey() throws Exception {
+    Path credentials = Files.createTempDirectory("sendsafely-keygen")
+      .resolve("credentials.json");
+    SendSafelyCLI cli = new SendSafelyCLI(consolePromptHelper,
+      new ErrorReporter(System.err), credentials.toFile());
+    cli.setSendSafelyAPI(sendSafely);
+    cli.setAuthenticatedCredentials("api-key", "api-secret");
+    cli.setCheckFile(false);
+
+    IOException error = assertThrows(IOException.class, () -> cli.keygen("laptop"));
+
+    assertTrue(error.getMessage().contains("DISABLE_CREDS_FILE"));
+    verify(sendSafely, never()).generateKeyPair(anyString());
+    assertFalse(Files.exists(credentials));
+  }
+
+  @Test
+  void keygenDoesNotReplaceMalformedCredentialFile() throws Exception {
+    Path credentials = Files.createTempFile("sendsafely-keygen", ".json");
+    Files.write(credentials, "not-json".getBytes(StandardCharsets.UTF_8));
+    SendSafelyCLI cli = new SendSafelyCLI(consolePromptHelper,
+      new ErrorReporter(System.err), credentials.toFile());
+    cli.setSendSafelyAPI(sendSafely);
+    cli.setAuthenticatedCredentials("api-key", "api-secret");
+    cli.setCheckFile(true);
+
+    Privatekey key = new Privatekey();
+    key.setPublicKeyId("public-key-id");
+    key.setArmoredKey("private-key-material");
+    when(sendSafely.generateKeyPair("laptop")).thenReturn(key);
+
+    assertThrows(IOException.class, () -> cli.keygen("laptop"));
+    assertEquals("not-json",
+      new String(Files.readAllBytes(credentials), StandardCharsets.UTF_8));
   }
 }

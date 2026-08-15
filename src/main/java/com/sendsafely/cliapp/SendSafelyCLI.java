@@ -4,7 +4,12 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -27,6 +32,7 @@ import picocli.CommandLine.Parameters;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import com.sendsafely.Package;
 import com.sendsafely.Privatekey;
@@ -74,13 +80,16 @@ class SendSafelyCLI implements Callable<Integer> {
     private boolean checkFile;
     private String publicKeyId;
     private String armoredKey;
+    private String apiKey;
+    private String apiSecret;
     private final ErrorReporter errorReporter;
+    private final File credentialsFile;
 
     private Stack<Runnable> undoActions;
 
-    private static final File credsHomeDirectory =
+    private static final File defaultCredsHomeDirectory =
         new File(System.getProperty("user.home"), ".config");
-    private static final File credsFile = new File(credsHomeDirectory, ".ss-creds.json");
+    private static final File defaultCredsFile = new File(defaultCredsHomeDirectory, ".ss-creds.json");
 
     @Option(names = {"-mf", "--message-file"}, description = "Package secure message from a file.")
     private File messageFile;
@@ -257,14 +266,76 @@ class SendSafelyCLI implements Callable<Integer> {
             "Ambiguous package id value '" + value + "'. Matches " + packageIds);
     }
 
-    private Integer keygen(String keygen)
+    Integer keygen(String keygen)
         throws NoSuchAlgorithmException, PublicKeysFailedException, PGPException, IOException {
-        Privatekey key = sendSafelyAPI.generateKeyPair(keygen);
+        if (!checkFile) {
+            throw new IOException(
+                "Credential storage is disabled by DISABLE_CREDS_FILE; cannot persist generated key");
+        }
 
-        System.out.println(key.getPublicKeyId());
-        System.out.println(key.getArmoredKey());
+        Privatekey key = sendSafelyAPI.generateKeyPair(keygen);
+        publicKeyId = key.getPublicKeyId();
+        armoredKey = key.getArmoredKey();
+        errorReporter.addSecret(armoredKey);
+
+        persistCredentials(key);
+        log("Generated key " + publicKeyId + " and saved it to " + credentialsFile);
 
         return 0;
+    }
+
+    private void persistCredentials(Privatekey key) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode credentials = mapper.createObjectNode();
+        if (credentialsFile.exists()) {
+            JsonNode existing = mapper.readTree(credentialsFile);
+            if (existing == null || !existing.isObject()) {
+                throw new IOException("Credentials file must contain a JSON object");
+            }
+            credentials = (ObjectNode) existing;
+        }
+
+        credentials.put("apiKey", apiKey);
+        credentials.put("apiKeySecret", apiSecret);
+        credentials.put("publicKeyId", key.getPublicKeyId());
+        credentials.put("armoredKey", key.getArmoredKey());
+
+        Path destination = credentialsFile.toPath();
+        Path directory = destination.toAbsolutePath().getParent();
+        if (directory == null) {
+            throw new IOException("Credentials file has no parent directory");
+        }
+        Files.createDirectories(directory);
+
+        Path temporary = Files.createTempFile(directory, ".ss-creds-", ".tmp");
+        try {
+            setOwnerOnlyPermissions(temporary);
+            mapper.writeValue(temporary.toFile(), credentials);
+            try {
+                Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
+            }
+            setOwnerOnlyPermissions(destination);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private void setOwnerOnlyPermissions(Path path) throws IOException {
+        try {
+            Set<PosixFilePermission> permissions =
+                PosixFilePermissions.fromString("rw-------");
+            Files.setPosixFilePermissions(path, permissions);
+        } catch (UnsupportedOperationException e) {
+            File file = path.toFile();
+            if (!file.setReadable(false, false) || !file.setWritable(false, false)
+                || !file.setExecutable(false, false) || !file.setReadable(true, true)
+                || !file.setWritable(true, true)) {
+                throw new IOException("Failed to restrict credentials file permissions");
+            }
+        }
     }
 
     private String getMessage(String packageId)
@@ -449,15 +520,42 @@ class SendSafelyCLI implements Callable<Integer> {
      * @param consolePromptHelper An object with prompt helper functions.
      */
     public SendSafelyCLI(ConsolePromptHelper consolePromptHelper) {
-        this(consolePromptHelper, new ErrorReporter(System.err));
+        this(consolePromptHelper, new ErrorReporter(System.err), defaultCredsFile);
     }
 
     SendSafelyCLI(ConsolePromptHelper consolePromptHelper, ErrorReporter errorReporter) {
+        this(consolePromptHelper, errorReporter, defaultCredsFile);
+    }
+
+    SendSafelyCLI(ConsolePromptHelper consolePromptHelper, ErrorReporter errorReporter,
+        File credentialsFile) {
         this.consolePromptHelper = consolePromptHelper;
         this.errorReporter = errorReporter;
+        this.credentialsFile = credentialsFile;
 
         undoActions = new Stack<>();
         addedRecipients = new HashSet<>();
+    }
+
+    void setSendSafelyAPI(SendSafely sendSafelyAPI) {
+        this.sendSafelyAPI = sendSafelyAPI;
+    }
+
+    void setAuthenticatedCredentials(String apiKey, String apiSecret) {
+        this.apiKey = apiKey;
+        this.apiSecret = apiSecret;
+    }
+
+    void setCheckFile(boolean checkFile) {
+        this.checkFile = checkFile;
+    }
+
+    String getPublicKeyId() {
+        return publicKeyId;
+    }
+
+    String getArmoredKey() {
+        return armoredKey;
     }
 
     /**
@@ -595,13 +693,10 @@ class SendSafelyCLI implements Callable<Integer> {
      * @return Returns true if the user successfully logged in. False otherwise.
      */
     public boolean attemptLogin() throws IOException {
-        String apiKey;
-        String apiSecret;
-
-        if (checkFile && credsFile.exists()) {
+        if (checkFile && credentialsFile.exists()) {
             try {
                 ObjectMapper mapper = new ObjectMapper();
-                JsonNode node = mapper.readTree(credsFile);
+                JsonNode node = mapper.readTree(credentialsFile);
                 apiKey = requiredCredential(node, "apiKey");
                 apiSecret = requiredCredential(node, "apiKeySecret");
 
@@ -611,7 +706,7 @@ class SendSafelyCLI implements Callable<Integer> {
                     errorReporter.addSecret(armoredKey);
                 }
             } catch (IOException | IllegalArgumentException e) {
-                errorReporter.report("Failed to read credentials from " + credsFile, e);
+                errorReporter.report("Failed to read credentials from " + credentialsFile, e);
                 return false;
             }
         } else {

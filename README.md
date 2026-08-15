@@ -34,6 +34,15 @@ It is also possible to run tests from most IDE's directly from the file.
 * `UNDO` Undo the most previously enacted action.
 * `QUIT` Quit the CLI application. Don't go!!!
 
+## Key generation
+
+Run `ss --keygen "description"` to generate the RSA key pair used to decrypt package keycodes.
+The CLI stores the public key ID and armored private key alongside the API credentials in
+`~/.config/.ss-creds.json`; it no longer prints private-key material. The credentials file contains
+sensitive secrets and is restricted to the current user where the platform supports file
+permissions. Key generation is unavailable when `DISABLE_CREDS_FILE=true` because the generated
+private key could not be persisted.
+
 ## Error reporting
 
 Runtime failures are written to stderr with their sanitized underlying exception and cause chain.
